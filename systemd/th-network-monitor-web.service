@@ -1,0 +1,14 @@
+[Unit]
+Description=TH Network Monitor Web
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/phamsang/.openclaw/workspace/th-network-monitor
+EnvironmentFile=/home/phamsang/.openclaw/workspace/th-network-monitor/.env
+ExecStart=/home/phamsang/.openclaw/workspace/th-network-monitor/.venv/bin/uvicorn app.main:app --host ${APP_HOST} --port ${APP_PORT}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

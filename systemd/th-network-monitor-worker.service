@@ -1,0 +1,14 @@
+[Unit]
+Description=TH Network Monitor Worker
+After=network.target th-network-monitor-web.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/phamsang/.openclaw/workspace/th-network-monitor
+EnvironmentFile=/home/phamsang/.openclaw/workspace/th-network-monitor/.env
+ExecStart=/home/phamsang/.openclaw/workspace/th-network-monitor/.venv/bin/python -m monitor.worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
