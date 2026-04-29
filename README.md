@@ -32,6 +32,16 @@ Kiến trúc và workflow chi tiết đã được chốt tại:
 ARCHITECTURE.md
 ```
 
+`ARCHITECTURE.md` là tài liệu canonical cho Antigravity/code agent. Trước khi code phải đọc file này, đặc biệt các mục:
+
+- SQLite migration rule
+- Monitor lock bằng `filelock`
+- `wan_success_count` / `tunnel_success_count` cho `UP_THRESHOLD`
+- Alert transaction order
+- Safe import rule
+- Antigravity implementation brief
+- Acceptance criteria và test matrix
+
 Tóm tắt flow chính:
 
 ```text
@@ -207,10 +217,12 @@ journalctl -u th-network-monitor-worker.service -f
 ### Phase 1 — Stability Core
 
 - Dùng thật `PING_RETRY`.
-- Implement `UP_THRESHOLD`.
-- Thêm monitor lock chống chạy trùng.
+- Implement `UP_THRESHOLD` bằng `wan_success_count` và `tunnel_success_count`.
+- Thêm monitor lock chống chạy trùng bằng cross-process file lock `data/monitor.lock` (`filelock`).
 - Deduplicate active incident.
 - Bật SQLite WAL + busy timeout.
+- Thêm lightweight SQLite migration cho cột mới nếu DB cũ đã tồn tại.
+- Thêm test cho status engine, checker retry và monitor lock.
 
 ### Phase 2 — Alert Quality
 
@@ -225,6 +237,7 @@ journalctl -u th-network-monitor-worker.service -f
 - Store detail page.
 - Export incident report Excel.
 - Import history/backup trước import.
+- Safe import: không xoá dữ liệu cũ nếu Excel thiếu cột hoặc cell blank.
 - Log rotation/systemd hardening.
 
 ### Không làm ở giai đoạn này
