@@ -18,11 +18,43 @@ Trong suốt quá trình xây dựng và vận hành, project phải bám sát k
 ## Stack
 
 - FastAPI + Jinja2 GUI
-- SQLite mặc định
+- SQLite mặc định, production bật WAL + busy timeout
 - Async ping monitor
 - Telegram Bot API
 - pandas/openpyxl để import Excel
 - systemd service mẫu
+
+## Architecture & workflow
+
+Kiến trúc và workflow chi tiết đã được chốt tại:
+
+```text
+ARCHITECTURE.md
+```
+
+Tóm tắt flow chính:
+
+```text
+Excel inventory
+   ↓
+FastAPI GUI /import
+   ↓
+SQLite stores + status + incidents
+   ↓
+monitor.worker periodic loop hoặc manual run-once
+   ↓
+Monitor lock chống chạy trùng
+   ↓
+Async WAN/DNS + IP Tunnel check với retry
+   ↓
+DOWN_THRESHOLD / UP_THRESHOLD chống alert flapping
+   ↓
+Open/update/resolve incident, không tạo duplicate active incident
+   ↓
+Telegram alert/recovery, batch khi nhiều store đổi trạng thái
+   ↓
+Dashboard / Stores / Incidents GUI
+```
 
 ## Cấu trúc
 
@@ -112,11 +144,15 @@ data/sample_stores.xlsx
 
 ## Logic monitor
 
-- WAN/DNS: resolve DNS nếu có, sau đó ping target.
+- WAN/DNS: resolve DNS nếu có, sau đó ping target; nếu resolve fail vẫn thử ping vì target có thể là IP.
 - Tunnel: ping IP Tunnel.
 - Mặc định check mỗi 60 giây.
-- Chỉ mở incident khi fail liên tiếp >= `DOWN_THRESHOLD`.
-- Khi WAN + Tunnel cùng UP lại, incident được resolve và gửi recovery.
+- `PING_RETRY` phải được áp dụng thật cho mỗi target.
+- Có monitor lock để tránh worker và manual run-once chạy trùng.
+- Chỉ mở/chuyển incident khi fail liên tiếp >= `DOWN_THRESHOLD`.
+- Chỉ resolve incident khi WAN + Tunnel cùng UP liên tiếp >= `UP_THRESHOLD`.
+- Mỗi store chỉ có tối đa 1 active incident `OPEN`; không tạo duplicate incident.
+- Khi nhiều store đổi trạng thái cùng cycle, alert Telegram phải batch/summary để tránh spam.
 
 Status:
 
@@ -162,13 +198,36 @@ journalctl -u th-network-monitor-worker.service -f
 ## Ghi chú vận hành
 
 - 500 cửa hàng x 2 target vẫn nhẹ với `MAX_CONCURRENCY=150`.
-- Nếu Telegram spam do line chập chờn, tăng `DOWN_THRESHOLD` lên 5 hoặc tăng `MONITOR_INTERVAL_SECONDS` lên 120.
-- Nếu cần DB mạnh hơn sau này, đổi sang PostgreSQL và thêm migration bằng Alembic.
+- Nếu Telegram spam do line chập chờn, tăng `DOWN_THRESHOLD` lên 5, tăng `UP_THRESHOLD` lên 3 hoặc tăng `MONITOR_INTERVAL_SECONDS` lên 120.
+- SQLite đủ cho giai đoạn này, nhưng production phải bật WAL + busy timeout để giảm lỗi lock giữa web và worker.
+- Nếu cần DB mạnh hơn sau này, đổi sang PostgreSQL và thêm migration bằng Alembic sau khi được xác nhận.
 
 ## Phase tiếp theo
+
+### Phase 1 — Stability Core
+
+- Dùng thật `PING_RETRY`.
+- Implement `UP_THRESHOLD`.
+- Thêm monitor lock chống chạy trùng.
+- Deduplicate active incident.
+- Bật SQLite WAL + busy timeout.
+
+### Phase 2 — Alert Quality
+
+- Batch alert khi nhiều store down cùng lúc.
+- Alert dedup theo incident.
+- Recovery chỉ gửi một lần.
+- Alert summary theo region/area/status.
+
+### Phase 3 — GUI/Ops
 
 - Auth login cho GUI.
 - Store detail page.
 - Export incident report Excel.
-- Batch alert khi nhiều store down cùng lúc.
-- Latency/packet loss thay vì chỉ UP/DOWN.
+- Import history/backup trước import.
+- Log rotation/systemd hardening.
+
+### Không làm ở giai đoạn này
+
+- Không đo latency.
+- Không tính packet loss.
