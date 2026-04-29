@@ -40,7 +40,10 @@ ARCHITECTURE.md
 - Alert transaction order
 - Safe import rule
 - Antigravity implementation brief
-- Acceptance criteria và test matrix
+- File-level implementation map
+- Acceptance criteria, test matrix và Definition of Done
+
+Nếu giao Antigravity/code agent, copy nguyên mục **15. Antigravity implementation brief** trong `ARCHITECTURE.md`. Không giao kiểu chung chung như “fix monitor” vì dễ làm lệch scope.
 
 Tóm tắt flow chính:
 

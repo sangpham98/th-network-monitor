@@ -552,32 +552,68 @@ TIMEZONE=Asia/Ho_Chi_Minh
 
 ## 15. Antigravity implementation brief
 
-Dùng đoạn này khi giao task cho Antigravity:
+Dùng đoạn này khi giao task cho Antigravity. Mục tiêu là để code agent sửa đúng phần cần sửa, không rewrite project và không tự đổi kiến trúc.
 
 ```text
-Read README.md and ARCHITECTURE.md first.
+You are working on TH Network Monitor.
+Read README.md and ARCHITECTURE.md first. Treat ARCHITECTURE.md as canonical.
 
-Do not change the chosen stack:
-FastAPI + Jinja2 + SQLite + SQLAlchemy + async worker + Telegram Bot API.
+Hard constraints:
+- Do not change the chosen stack: FastAPI + Jinja2 + SQLite + SQLAlchemy + async worker + Telegram Bot API.
+- Do not implement latency or packet loss.
+- Do not rewrite the whole project.
+- Preserve existing routes, templates, model names, and service layout unless a small compatibility edit is required.
+- Make small targeted changes and keep commits easy to review.
+- If a required change conflicts with ARCHITECTURE.md, stop and document the conflict instead of guessing.
 
-Do not implement latency or packet loss.
+Current code gaps to fix for Phase 1:
+- app.models.StoreStatus currently lacks wan_success_count and tunnel_success_count.
+- monitor.checker.ping_host currently uses ping -c 1 and does not use settings.ping_retry.
+- monitor.worker.run_once has no cross-process lock.
+- monitor.status_engine.update_status_and_incident can create duplicate OPEN incidents.
+- SQLite init must enable WAL and busy_timeout and run idempotent lightweight migrations.
 
 Implement Phase 1 Stability Core only:
-1. Use PING_RETRY in ping checks.
-2. Add UP_THRESHOLD logic with explicit success counters.
-3. Add cross-process monitor lock using filelock at data/monitor.lock.
-4. Prevent duplicate OPEN incidents per store.
-5. Enable SQLite WAL and busy_timeout.
-6. Add lightweight SQLite migration for any new columns.
-7. Add/update tests for status_engine, checker retry, and monitor lock.
+1. Add wan_success_count and tunnel_success_count columns to StoreStatus.
+2. Add idempotent SQLite migration for those columns before app/worker use the DB.
+3. Configure SQLite with WAL and busy_timeout=5000.
+4. Use PING_RETRY in ping checks. Either call `ping -c PING_RETRY -W timeout target` or loop attempts; pass if at least one attempt succeeds.
+5. Add cross-process monitor lock using filelock at data/monitor.lock. If lock is busy, return {"status":"skipped","reason":"monitor already running"} and do not run checks.
+6. Implement UP_THRESHOLD with the explicit success counters. Recovery requires WAN and Tunnel both UP for UP_THRESHOLD consecutive cycles.
+7. Prevent duplicate OPEN incidents per store. Reuse/update the existing OPEN incident instead of creating another.
+8. Keep Telegram failure isolated from DB state. Do not mark sent flags before successful send.
+9. Add/update tests for checker retry, status_engine thresholds/dedup, and monitor lock.
 
-Do not rewrite the whole project.
-Make small targeted changes.
-Preserve existing routes and UI unless required.
-Update README/ARCHITECTURE if implementation differs.
+Suggested work order:
+1. Inspect current files: app/database.py, app/models.py, monitor/checker.py, monitor/status_engine.py, monitor/worker.py, alerts/telegram.py, tests/ if present.
+2. Add database/model/migration changes first.
+3. Add checker retry.
+4. Add monitor lock.
+5. Refactor status engine carefully.
+6. Add tests.
+7. Run: python -m compileall app monitor alerts importers scripts
+8. Run tests if test framework exists; otherwise add pytest tests and run pytest.
+9. Update README.md only if setup/test commands changed.
+
+Do not start Phase 2 or Phase 3 in this task.
 ```
 
-## 16. Acceptance criteria
+## 16. File-level implementation map for Phase 1
+
+Antigravity/code agent nên bám theo map này để tránh sửa lan man:
+
+| File | Việc cần làm | Không làm |
+|---|---|---|
+| `app/models.py` | Thêm `wan_success_count`, `tunnel_success_count` vào `StoreStatus` | Không rename bảng/cột cũ |
+| `app/database.py` | Bật SQLite WAL/busy_timeout, thêm migration idempotent | Không đưa Alembic/PostgreSQL vào Phase 1 |
+| `monitor/checker.py` | Cho `ping_host()` nhận retry và dùng thật `PING_RETRY` | Không tính latency/packet loss |
+| `monitor/worker.py` | Truyền retry vào checker, bọc `run_once()` bằng `filelock` | Không đổi service layout |
+| `monitor/status_engine.py` | Counter success/fail, UP_THRESHOLD, dedup OPEN incident | Không tạo nhiều incident OPEN cùng store |
+| `alerts/telegram.py` | Giữ lỗi Telegram không crash cycle nếu cần harden nhẹ | Không đổi provider alert |
+| `requirements.txt` | Thêm `filelock`, `pytest` nếu thiếu | Không thêm framework lớn |
+| `tests/` | Test retry, threshold, dedup, lock | Không phụ thuộc Telegram thật |
+
+## 17. Acceptance criteria
 
 ### Phase 1 — Stability Core
 
@@ -591,6 +627,7 @@ Update README/ARCHITECTURE if implementation differs.
 [ ] SQLite có busy_timeout.
 [ ] Schema migration thêm cột mới nếu DB cũ đã tồn tại.
 [ ] Tests pass.
+[ ] `python -m compileall app monitor alerts importers scripts` pass.
 ```
 
 ### Phase 2 — Alert Quality
@@ -614,7 +651,7 @@ Update README/ARCHITECTURE if implementation differs.
 [ ] Import summary hiển thị created/updated/errors.
 ```
 
-## 17. Test matrix bắt buộc
+## 18. Test matrix bắt buộc
 
 ### Status engine
 
@@ -641,7 +678,7 @@ Update README/ARCHITECTURE if implementation differs.
 ### Checker retry
 
 ```text
-[ ] PING_RETRY=3 gọi ping với 3 attempts hoặc equivalent retry loop.
+[ ] PING_RETRY=3 gọi ping với 3 attempts hoặc equivalent `ping -c 3`.
 [ ] Có ít nhất 1 reply thì target considered UP.
 [ ] Toàn bộ retry fail thì target considered DOWN.
 ```
@@ -655,7 +692,18 @@ Update README/ARCHITECTURE if implementation differs.
 [ ] Duplicate store_code update existing.
 ```
 
-## 18. Những thứ không làm ở giai đoạn này
+## 19. Definition of done for an Antigravity PR
+
+Một PR/patch đạt chuẩn khi có đủ:
+
+- Scope chỉ nằm trong Phase được giao.
+- Không đổi stack/DB/service layout.
+- Có test hoặc tối thiểu có manual verification rõ ràng.
+- Không commit `.env`, DB runtime, upload files, logs, `__pycache__`.
+- README/ARCHITECTURE được cập nhật nếu behavior thực tế khác tài liệu.
+- Commit message rõ: ví dụ `Implement Phase 1 stability core`.
+
+## 20. Những thứ không làm ở giai đoạn này
 
 - Không đo latency.
 - Không tính packet loss.
