@@ -566,34 +566,38 @@ Hard constraints:
 - Make small targeted changes and keep commits easy to review.
 - If a required change conflicts with ARCHITECTURE.md, stop and document the conflict instead of guessing.
 
-Current code gaps to fix for Phase 1:
+Current code gaps to fix for Phase 1, verified against the current skeleton:
 - app.models.StoreStatus currently lacks wan_success_count and tunnel_success_count.
 - monitor.checker.ping_host currently uses ping -c 1 and does not use settings.ping_retry.
 - monitor.worker.run_once has no cross-process lock.
 - monitor.status_engine.update_status_and_incident can create duplicate OPEN incidents.
-- SQLite init must enable WAL and busy_timeout and run idempotent lightweight migrations.
+- monitor.status_engine resolves after a single UP cycle and does not use settings.up_threshold.
+- monitor.worker sends Telegram after DB commit but does not update alert_sent/recovery_sent after a successful send.
+- app.database.init_db only runs create_all(); it does not enable WAL/busy_timeout or migrate existing SQLite DBs.
+- app.main.import_upload saves UploadFile.filename directly and importers.excel_importer overwrites optional fields with None/blank values. This belongs to Phase 3 unless explicitly assigned.
 
 Implement Phase 1 Stability Core only:
 1. Add wan_success_count and tunnel_success_count columns to StoreStatus.
 2. Add idempotent SQLite migration for those columns before app/worker use the DB.
-3. Configure SQLite with WAL and busy_timeout=5000.
+3. Configure SQLite with WAL and busy_timeout=5000 for every SQLite connection.
 4. Use PING_RETRY in ping checks. Either call `ping -c PING_RETRY -W timeout target` or loop attempts; pass if at least one attempt succeeds.
 5. Add cross-process monitor lock using filelock at data/monitor.lock. If lock is busy, return {"status":"skipped","reason":"monitor already running"} and do not run checks.
 6. Implement UP_THRESHOLD with the explicit success counters. Recovery requires WAN and Tunnel both UP for UP_THRESHOLD consecutive cycles.
 7. Prevent duplicate OPEN incidents per store. Reuse/update the existing OPEN incident instead of creating another.
-8. Keep Telegram failure isolated from DB state. Do not mark sent flags before successful send.
-9. Add/update tests for checker retry, status_engine thresholds/dedup, and monitor lock.
+8. Keep Telegram failure isolated from DB state. Do not mark sent flags before successful send. After a successful send, update alert_sent/recovery_sent and last_alert_at in a second small transaction.
+9. Add/update tests for checker retry, status_engine thresholds/dedup, SQLite migration/WAL, and monitor lock.
 
 Suggested work order:
 1. Inspect current files: app/database.py, app/models.py, monitor/checker.py, monitor/status_engine.py, monitor/worker.py, alerts/telegram.py, tests/ if present.
-2. Add database/model/migration changes first.
-3. Add checker retry.
-4. Add monitor lock.
-5. Refactor status engine carefully.
-6. Add tests.
+2. Add database/model/migration changes first. Keep migrations idempotent and safe for an already-created DB.
+3. Add checker retry with minimal function signature changes.
+4. Add monitor lock around the whole run_once cycle, including manual route usage.
+5. Refactor status engine carefully. Prefer small helper functions over rewriting the whole module.
+6. Add tests. If no tests folder exists, create pytest tests with fake stores/SQLite temp DB and monkeypatch ping/Telegram.
 7. Run: python -m compileall app monitor alerts importers scripts
-8. Run tests if test framework exists; otherwise add pytest tests and run pytest.
+8. Run: pytest
 9. Update README.md only if setup/test commands changed.
+10. Provide a concise implementation summary and any remaining risks.
 
 Do not start Phase 2 or Phase 3 in this task.
 ```
@@ -710,3 +714,45 @@ Một PR/patch đạt chuẩn khi có đủ:
 - Không cài endpoint agent tại store.
 - Không đổi SQLite sang DB khác nếu chưa có nhu cầu rõ ràng.
 - Không đổi stack web/API nếu chưa được xác nhận.
+
+## 21. Antigravity handoff checklist
+
+Trước khi giao cho Antigravity/code agent, nên copy rõ 4 phần sau, theo thứ tự:
+
+1. `README.md` → Project governance rule và Architecture & workflow.
+2. `ARCHITECTURE.md` mục 15 → Antigravity implementation brief.
+3. `ARCHITECTURE.md` mục 16 → File-level implementation map.
+4. `ARCHITECTURE.md` mục 17-19 → Acceptance criteria, test matrix, Definition of done.
+
+Prompt khuyến nghị:
+
+```text
+Implement Phase 1 Stability Core only. Do not implement Phase 2/3.
+Before editing, read README.md and ARCHITECTURE.md.
+After editing, run compileall and pytest.
+If any required change conflicts with ARCHITECTURE.md, stop and report the conflict.
+```
+
+Reviewer checklist sau khi Antigravity trả code:
+
+```text
+[ ] Diff không rewrite project hoặc đổi stack.
+[ ] Không đụng latency/packet loss.
+[ ] Không tự đổi import workflow trừ khi task Phase 3 được giao.
+[ ] `requirements.txt` chỉ thêm dependency nhỏ cần thiết như filelock/pytest.
+[ ] `run_once()` skip an toàn khi lock busy.
+[ ] Test có monkeypatch, không phụ thuộc Telegram thật hoặc mạng thật.
+[ ] Không commit runtime files: .env, data/*.db, data/uploads/*, logs/*, __pycache__.
+```
+
+## 22. Deferred optimizations
+
+Các tối ưu này hợp lý nhưng không nên nhét vào Phase 1 để tránh Antigravity làm quá scope:
+
+- Auth/login cho GUI trước khi expose ngoài LAN tin cậy.
+- Import preview + confirm trước commit.
+- Backup/restore UI cho SQLite DB.
+- Export incident report Excel.
+- Alert batch/summary nâng cao.
+- Log rotation và systemd hardening chi tiết.
+- PostgreSQL/Alembic nếu workload vượt SQLite.

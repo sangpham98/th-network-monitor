@@ -43,7 +43,12 @@ ARCHITECTURE.md
 - File-level implementation map
 - Acceptance criteria, test matrix và Definition of Done
 
-Nếu giao Antigravity/code agent, copy nguyên mục **15. Antigravity implementation brief** trong `ARCHITECTURE.md`. Không giao kiểu chung chung như “fix monitor” vì dễ làm lệch scope.
+Nếu giao Antigravity/code agent, không giao kiểu chung chung như “fix monitor” vì dễ làm lệch scope. Copy theo thứ tự:
+
+1. Mục **15. Antigravity implementation brief** trong `ARCHITECTURE.md`
+2. Mục **16. File-level implementation map**
+3. Mục **17-19. Acceptance criteria / test matrix / Definition of done**
+4. Mục **21. Antigravity handoff checklist** để review diff sau khi agent làm xong
 
 Tóm tắt flow chính:
 
