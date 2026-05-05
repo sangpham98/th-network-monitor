@@ -55,10 +55,35 @@ logs/             runtime logs (not committed)
 
 ## One-command install
 
-Recommended production install on a systemd Linux host:
+Recommended production install from a local checkout on a systemd Linux host:
 
 ```bash
 sudo scripts/install.sh
+```
+
+If the target machine only has a repository URL, install with a bootstrap one-liner:
+
+```bash
+git clone <REPO_URL> /tmp/th-network-monitor && sudo /tmp/th-network-monitor/scripts/install.sh
+```
+
+Or, if `scripts/bootstrap.sh` is hosted at a raw URL:
+
+```bash
+curl -fsSL <BOOTSTRAP_RAW_URL> | sudo bash -s -- <REPO_URL>
+```
+
+The bootstrap script accepts an optional checkout directory:
+
+```bash
+sudo scripts/bootstrap.sh <REPO_URL> [/tmp/th-network-monitor-bootstrap]
+```
+
+Install prerequisites for a minimal Debian/Ubuntu host:
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv rsync iputils-ping curl
 ```
 
 Installed layout:

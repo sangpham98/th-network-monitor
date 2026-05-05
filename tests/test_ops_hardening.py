@@ -88,3 +88,15 @@ def test_thnm_helper_supports_expected_commands():
     assert "/opt/th-network-monitor" in content
     assert "PYTHON_CODE" in content
     assert "exec(os.environ" in content
+
+
+def test_bootstrap_clones_repo_and_runs_installer():
+    content = Path("scripts/bootstrap.sh").read_text()
+
+    assert "set -euo pipefail" in content
+    assert "Usage: bootstrap.sh <repo-url> [checkout-dir]" in content
+    assert "require_command git" in content
+    assert "git clone \"$REPO_URL\" \"$CHECKOUT_DIR\"" in content
+    assert "git -C \"$CHECKOUT_DIR\" pull --ff-only" in content
+    assert "exec \"$CHECKOUT_DIR/scripts/install.sh\"" in content
+    assert "https://*|http://*|git@*:*|ssh://*" in content
