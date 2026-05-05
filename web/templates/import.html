@@ -1,1 +1,23 @@
-{% extends 'base.html' %}{% block content %}<h1>Import Excel</h1><p class="hint">Cột hỗ trợ: Mã CH, PC Name, IP Local, IP tunel/IP Tunnel, WAN DNS/DNS/Domain, Miền, Khu vực, Địa chỉ.</p>{% if request.query_params %}<div class="alert">Created: {{ request.query_params.get('created','0') }} | Updated: {{ request.query_params.get('updated','0') }} | Errors: {{ request.query_params.get('errors','0') }}</div>{% endif %}<form method="post" enctype="multipart/form-data"><input type="file" name="file" accept=".xlsx,.xls" required><button class="btn">Upload & Import</button></form>{% endblock %}
+{% extends 'base.html' %}
+{% block content %}
+<h1>Import Excel</h1>
+<p class="hint">Cột hỗ trợ: Mã CH, PC Name, IP Local, IP tunel/IP Tunnel, WAN DNS/DNS/Domain, Miền, Khu vực, Địa chỉ.</p>
+{% if request.query_params.get('cancelled') == '1' %}
+<div class="alert">Import preview cancelled. No data was changed.</div>
+{% elif request.query_params %}
+<div class="alert">
+  Created: {{ request.query_params.get('created','0') }} |
+  Updated: {{ request.query_params.get('updated','0') }} |
+  Valid rows: {{ request.query_params.get('valid_rows','0') }} |
+  Errors: {{ request.query_params.get('errors','0') }} |
+  Blank fields skipped: {{ request.query_params.get('skipped_blank_fields','0') }} |
+  Missing-column fields skipped: {{ request.query_params.get('skipped_missing_column_fields','0') }}
+  {% if request.query_params.get('backup') == '1' %}| Backup created{% endif %}
+</div>
+{% endif %}
+<form method="post" action="/import/preview" enctype="multipart/form-data">
+  <input type="file" name="file" accept=".xlsx,.xls" required>
+  <button class="btn">Preview Import</button>
+</form>
+{% endblock %}
+

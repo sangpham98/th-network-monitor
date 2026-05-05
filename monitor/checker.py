@@ -2,14 +2,14 @@ import asyncio
 import socket
 
 
-async def ping_host(host: str, timeout: int = 1) -> bool:
+async def ping_host(host: str, timeout: int = 1, retry: int = 1) -> bool:
     if not host:
         return False
 
     proc = await asyncio.create_subprocess_exec(
         "ping",
         "-c",
-        "1",
+        str(max(1, retry)),
         "-W",
         str(timeout),
         host,
@@ -29,12 +29,12 @@ async def resolve_dns(name: str) -> bool:
         return False
 
 
-async def check_wan(target: str, timeout: int = 1) -> bool:
+async def check_wan(target: str, timeout: int = 1, retry: int = 1) -> bool:
     if not target:
         return False
 
     resolved = await resolve_dns(target)
     if not resolved:
         # If target is already an IP, DNS resolve may fail on some systems; try ping anyway.
-        return await ping_host(target, timeout)
-    return await ping_host(target, timeout)
+        return await ping_host(target, timeout, retry)
+    return await ping_host(target, timeout, retry)

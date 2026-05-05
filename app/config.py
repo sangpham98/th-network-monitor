@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     timezone: str = "Asia/Ho_Chi_Minh"
+    log_level: str = "INFO"
+    auth_enabled: bool = True
+    admin_username: str = "admin"
+    admin_password: str = ""
+    session_secret: str = "change-me"
+    session_cookie_name: str = "thnm_session"
+    session_max_age_seconds: int = 28800
 
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", env_file_encoding="utf-8")
 

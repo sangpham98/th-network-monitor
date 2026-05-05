@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Import Preview</h1>
+<p class="hint">Review the parsed Excel rows before committing changes to the database.</p>
+
+<section class="card">
+  <h2>Summary</h2>
+  <table>
+    <tbody>
+      <tr><th>Valid rows</th><td>{{ preview.valid_rows }}</td></tr>
+      <tr><th>Errors</th><td>{{ preview.errors|length }}</td></tr>
+      <tr><th>Would create</th><td>{{ preview.would_create }}</td></tr>
+      <tr><th>Would update</th><td>{{ preview.would_update }}</td></tr>
+      <tr><th>Blank fields skipped</th><td>{{ preview.skipped_blank_fields }}</td></tr>
+      <tr><th>Missing-column fields skipped</th><td>{{ preview.skipped_missing_column_fields }}</td></tr>
+      <tr><th>Backup required</th><td>{{ 'yes' if preview.backup_required else 'no' }}</td></tr>
+    </tbody>
+  </table>
+</section>
+
+{% if preview.errors %}
+<section class="card">
+  <h2>Errors</h2>
+  <table>
+    <thead><tr><th>Row</th><th>Error</th></tr></thead>
+    <tbody>
+      {% for error in preview.errors %}
+      <tr><td>{{ error.row }}</td><td>{{ error.error }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Sample valid rows</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Row</th>
+        <th>Mã CH</th>
+        <th>PC Name</th>
+        <th>IP Local</th>
+        <th>IP Tunnel</th>
+        <th>WAN DNS</th>
+        <th>Miền</th>
+        <th>Khu vực</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in preview.samples %}
+      <tr>
+        <td>{{ row.row }}</td>
+        <td>{{ row.store_code }}</td>
+        <td>{{ row.pc_name or '-' }}</td>
+        <td>{{ row.ip_local or '-' }}</td>
+        <td>{{ row.ip_tunnel or '-' }}</td>
+        <td>{{ row.wan_dns or '-' }}</td>
+        <td>{{ row.region or '-' }}</td>
+        <td>{{ row.area or '-' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">No valid rows.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="toolbar">
+  <form method="post" action="/import/confirm">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button class="btn" type="submit">Confirm Import</button>
+  </form>
+  <form method="post" action="/import/cancel">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button class="btn" type="submit">Cancel</button>
+  </form>
+</div>
+{% endblock %}

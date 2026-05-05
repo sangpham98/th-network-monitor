@@ -1,1 +1,46 @@
-{% extends 'base.html' %}{% block content %}<h1>Incidents</h1><table><thead><tr><th>Mã CH</th><th>Khu vực</th><th>Loại lỗi</th><th>Status</th><th>Bắt đầu</th><th>Kết thúc</th><th>Downtime(s)</th></tr></thead><tbody>{% for incident, store in rows %}<tr><td>{{ store.store_code }}</td><td>{{ store.area or '-' }}</td><td>{{ incident.incident_type }}</td><td>{{ incident.status }}</td><td>{{ incident.started_at }}</td><td>{{ incident.ended_at or '-' }}</td><td>{{ incident.duration_seconds or '-' }}</td></tr>{% endfor %}</tbody></table>{% endblock %}
+{% extends 'base.html' %}
+{% block content %}
+<h1>Incidents</h1>
+<form class="toolbar" method="get" action="/incidents">
+  <input name="store_code" value="{{ store_code }}" placeholder="Mã CH">
+  <select name="status">
+    <option value="">Tất cả status</option>
+    {% for s in ['OPEN','RESOLVED'] %}
+    <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+  <input type="date" name="from_date" value="{{ from_date }}">
+  <input type="date" name="to_date" value="{{ to_date }}">
+  <button class="btn">Lọc</button>
+  <a class="btn" href="/incidents/export?{{ request.query_params }}">Export Excel</a>
+</form>
+<table>
+  <thead>
+    <tr>
+      <th>Mã CH</th>
+      <th>Khu vực</th>
+      <th>Loại lỗi</th>
+      <th>Status</th>
+      <th>Bắt đầu</th>
+      <th>Kết thúc</th>
+      <th>Downtime(s)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for incident, store in rows %}
+    <tr>
+      <td><a href="/stores/{{ store.id }}">{{ store.store_code }}</a></td>
+      <td>{{ store.area or '-' }}</td>
+      <td>{{ incident.incident_type }}</td>
+      <td>{{ incident.status }}</td>
+      <td>{{ incident.started_at }}</td>
+      <td>{{ incident.ended_at or '-' }}</td>
+      <td>{{ incident.duration_seconds or '-' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No incidents.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+

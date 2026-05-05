@@ -1,0 +1,8 @@
+/home/phamsang/Documents/th-network-monitor/logs/*.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

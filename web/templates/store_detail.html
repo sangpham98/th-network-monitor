@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Store {{ store.store_code }}</h1>
+<p class="hint"><a href="/stores">← Back to Stores</a></p>
+
+<section class="grid">
+  <div class="card">
+    <h2>Thông tin cửa hàng</h2>
+    <table>
+      <tbody>
+        <tr><th>Mã CH</th><td>{{ store.store_code }}</td></tr>
+        <tr><th>PC Name</th><td>{{ store.pc_name or '-' }}</td></tr>
+        <tr><th>Miền</th><td>{{ store.region or '-' }}</td></tr>
+        <tr><th>Khu vực</th><td>{{ store.area or '-' }}</td></tr>
+        <tr><th>Địa chỉ</th><td>{{ store.address or '-' }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Network targets</h2>
+    <table>
+      <tbody>
+        <tr><th>WAN DNS</th><td>{{ store.wan_dns or '-' }}</td></tr>
+        <tr><th>IP Tunnel</th><td>{{ store.ip_tunnel or '-' }}</td></tr>
+        <tr><th>IP Local</th><td>{{ store.ip_local or '-' }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Current status</h2>
+  {% set status = store.status %}
+  <table>
+    <tbody>
+      <tr><th>Overall</th><td class="badge status-{{ status.overall_status if status else 'UNKNOWN' }}">{{ status.overall_status if status else 'UNKNOWN' }}</td></tr>
+      <tr><th>WAN</th><td>{{ status.wan_status if status else 'UNKNOWN' }}</td></tr>
+      <tr><th>Tunnel</th><td>{{ status.tunnel_status if status else 'UNKNOWN' }}</td></tr>
+      <tr><th>WAN fail/success</th><td>{{ status.wan_fail_count if status else 0 }} / {{ status.wan_success_count if status else 0 }}</td></tr>
+      <tr><th>Tunnel fail/success</th><td>{{ status.tunnel_fail_count if status else 0 }} / {{ status.tunnel_success_count if status else 0 }}</td></tr>
+      <tr><th>Last check</th><td>{{ status.last_check_at if status and status.last_check_at else '-' }}</td></tr>
+      <tr><th>Last changed</th><td>{{ status.last_changed_at if status and status.last_changed_at else '-' }}</td></tr>
+      <tr><th>Last alert</th><td>{{ status.last_alert_at if status and status.last_alert_at else '-' }}</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Incident history</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Started</th>
+        <th>Ended</th>
+        <th>Duration</th>
+        <th>Alert sent</th>
+        <th>Recovery sent</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for incident in incidents %}
+      <tr>
+        <td>{{ incident.id }}</td>
+        <td>{{ incident.incident_type }}</td>
+        <td>{{ incident.status }}</td>
+        <td>{{ incident.started_at }}</td>
+        <td>{{ incident.ended_at or '-' }}</td>
+        <td>{{ incident.duration_seconds if incident.duration_seconds is not none else '-' }}</td>
+        <td>{{ 'yes' if incident.alert_sent else 'no' }}</td>
+        <td>{{ 'yes' if incident.recovery_sent else 'no' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">No incidents.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>SQLite Backups</h1>
+
+{% if request.query_params.get('created') == '1' %}<div class="alert">Backup created.</div>{% endif %}
+{% if request.query_params.get('deleted') == '1' %}<div class="alert">Backup deleted.</div>{% endif %}
+{% if request.query_params.get('restored') == '1' %}<div class="alert">Restore complete. Pre-restore backup: {{ request.query_params.get('pre_restore','') }}</div>{% endif %}
+{% if request.query_params.get('unsupported') == '1' %}<div class="alert">SQLite DB file is not available for this action.</div>{% endif %}
+
+<section class="card">
+  <h2>Current database</h2>
+  {% if db_path %}
+  <p><strong>SQLite DB:</strong> {{ db_path }}</p>
+  <form method="post" action="/backups/create">
+    <button class="btn" type="submit">Create manual backup</button>
+  </form>
+  {% else %}
+  <p class="alert">Backup/restore UI supports SQLite only.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Available backups</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Size</th>
+        <th>Modified</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for backup in backups %}
+      <tr>
+        <td>{{ backup.name }}</td>
+        <td>{{ backup.size_bytes }}</td>
+        <td>{{ backup.modified_at }}</td>
+        <td class="toolbar">
+          <a class="btn" href="/backups/download/{{ backup.name }}">Download</a>
+          <form method="post" action="/backups/restore">
+            <input type="hidden" name="name" value="{{ backup.name }}">
+            <button class="btn" type="submit">Restore</button>
+          </form>
+          <form method="post" action="/backups/delete">
+            <input type="hidden" name="name" value="{{ backup.name }}">
+            <button class="btn" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No backups.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<p class="hint">Restore creates a pre-restore backup before replacing the active SQLite DB.</p>
+{% endblock %}

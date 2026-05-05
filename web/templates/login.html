@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card" style="max-width: 460px; margin: 48px auto;">
+  <h1>Đăng nhập</h1>
+  <p class="hint">Đăng nhập để truy cập TH Network Monitor.</p>
+  {% if not auth_configured %}
+  <div class="alert">Auth chưa được cấu hình an toàn. Vui lòng đặt ADMIN_PASSWORD và SESSION_SECRET trong .env.</div>
+  {% endif %}
+  {% if error %}
+  <div class="alert">{{ error }}</div>
+  {% endif %}
+  <form method="post" action="/login">
+    <label>Username</label>
+    <input type="text" name="username" autocomplete="username" required>
+    <label>Password</label>
+    <input type="password" name="password" autocomplete="current-password" required>
+    <button class="btn" type="submit">Đăng nhập</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,32 +1,29 @@
-# TH Network Monitor — Architecture & Workflow
+# TH Network Monitor — Architecture
 
 ## 1. Mục tiêu
 
-TH Network Monitor là hệ thống web GUI nhẹ để monitor kết nối mạng cho khoảng 500 cửa hàng TH Truemart.
+TH Network Monitor là web GUI nội bộ để monitor WAN/DNS và IP Tunnel cho khoảng 500 cửa hàng TH Truemart.
 
-Phạm vi đã chốt:
+Phạm vi hiện tại:
 
-- Monitor agentless, không cài agent tại store.
-- Monitor bằng WAN/DNS và IP Tunnel.
+- Agentless, không cài agent tại store.
 - Import inventory từ Excel.
 - Lưu dữ liệu mặc định bằng SQLite.
 - Gửi cảnh báo và recovery qua Telegram.
-- Web GUI nội bộ để xem dashboard, stores, incidents và import dữ liệu.
+- GUI nội bộ: dashboard, stores, store detail, incidents, import, backup/restore.
 - Không triển khai latency/packet loss ở giai đoạn này.
 
-## 2. Stack đã chốt
+## 2. Stack cố định
 
-- FastAPI cho web app/API.
-- Jinja2 cho GUI server-side rendering.
-- SQLite mặc định cho database.
-- SQLAlchemy ORM.
+- FastAPI + Jinja2 server-side GUI.
+- SQLite + SQLAlchemy ORM.
 - Async worker cho monitor loop.
 - System `ping` command cho ICMP check.
 - Telegram Bot API cho alert.
 - pandas/openpyxl cho Excel import.
-- systemd cho service deployment.
+- systemd cho deployment.
 
-Không tự ý đổi stack nếu chưa được xác nhận.
+Không tự ý đổi stack/database/service layout nếu chưa được xác nhận.
 
 ## 3. Service layout
 
@@ -34,10 +31,10 @@ Không tự ý đổi stack nếu chưa được xác nhận.
 systemd
 ├── th-network-monitor-web.service
 │   └── uvicorn app.main:app
-│       ├── Dashboard
-│       ├── Stores
-│       ├── Incidents
-│       ├── Import Excel
+│       ├── Dashboard / Stores / Store detail
+│       ├── Incidents / Export report
+│       ├── Import preview + confirm
+│       ├── Backup / restore
 │       ├── Telegram test
 │       └── Manual monitor run-once
 │
@@ -50,107 +47,62 @@ systemd
 
 ### Store
 
-Lưu inventory cửa hàng:
+Inventory cửa hàng:
 
-- `store_code`
-- `pc_name`
-- `ip_local`
-- `ip_tunnel`
-- `wan_dns`
-- `region`
-- `area`
-- `address`
+- `store_code`, `pc_name`
+- `ip_local`, `ip_tunnel`, `wan_dns`
+- `region`, `area`, `address`
 - `enabled`
 
 ### StoreStatus
 
-Lưu trạng thái mới nhất:
+Trạng thái mới nhất:
 
 - `wan_status`: `UP`, `DOWN`, `UNKNOWN`
 - `tunnel_status`: `UP`, `DOWN`, `UNKNOWN`
 - `overall_status`: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, `UNKNOWN`
-- `wan_fail_count`
-- `tunnel_fail_count`
-- `wan_success_count`
-- `tunnel_success_count`
-- `last_check_at`
-- `last_changed_at`
-- `last_alert_at`
+- `wan_fail_count`, `tunnel_fail_count`
+- `wan_success_count`, `tunnel_success_count`
+- `last_check_at`, `last_changed_at`, `last_alert_at`
 
 ### Incident
 
-Lưu sự cố:
+Lịch sử sự cố:
 
-- `store_id`
-- `incident_type`
-- `status`: `OPEN`, `RESOLVED`
-- `started_at`
-- `ended_at`
-- `duration_seconds`
-- `alert_sent`
-- `recovery_sent`
-- `detail`
+- `store_id`, `incident_type`, `status`
+- `started_at`, `ended_at`, `duration_seconds`
+- `alert_sent`, `recovery_sent`, `detail`
 
-Rule quan trọng:
-
-- Mỗi store chỉ nên có tối đa 1 active incident `OPEN` tại một thời điểm.
-- Nếu store đang có incident `OPEN`, không tạo duplicate incident; chỉ update type/detail nếu cần.
+Rule: mỗi store chỉ có tối đa 1 incident `OPEN`; nếu đã có thì update type/detail, không tạo duplicate.
 
 ## 5. Database workflow
 
-SQLite vẫn là mặc định vì nhẹ và đủ cho ~500 stores.
-
-Production SQLite phải cấu hình:
+SQLite là mặc định vì đủ nhẹ cho workload hiện tại. Production SQLite phải bật:
 
 - `PRAGMA journal_mode=WAL;`
 - `PRAGMA busy_timeout=5000;`
 
-Lý do:
+Lý do: web process và worker process có thể đọc/ghi cùng lúc.
 
-- Web process và worker process có thể đọc/ghi cùng lúc.
-- WAL giúp giảm lock giữa read/write.
-- busy timeout giúp tránh lỗi `database is locked` khi import hoặc monitor update.
+SQLite migration rule:
 
-### SQLite migration rule
-
-Vì SQLite `create_all()` không tự thêm cột mới vào bảng đã tồn tại, mọi thay đổi schema phải có lightweight migration.
-
-Rule bắt buộc:
-
-- Không chỉ sửa SQLAlchemy model rồi kỳ vọng DB cũ tự cập nhật.
-- Nếu thêm cột mới, phải có migration trong `app/database.py` hoặc `scripts/migrate_db.py`.
-- Migration phải idempotent: chạy nhiều lần không lỗi.
-- Startup nên chạy migration nhẹ trước khi app/worker dùng schema mới.
-
-Các cột cần thêm cho workflow hiện tại nếu DB cũ chưa có:
-
-```sql
-ALTER TABLE store_status ADD COLUMN wan_success_count INTEGER DEFAULT 0;
-ALTER TABLE store_status ADD COLUMN tunnel_success_count INTEGER DEFAULT 0;
-```
-
-Nếu sau này dữ liệu lớn hơn hoặc nhiều user truy cập đồng thời hơn, mới cân nhắc PostgreSQL kèm migration Alembic.
+- `create_all()` không tự thêm cột vào DB cũ.
+- Nếu thêm cột mới, phải có migration idempotent trong [app/database.py](app/database.py) hoặc script migration.
+- Startup phải chạy migration trước khi app/worker dùng schema mới.
 
 ## 6. Import workflow
 
 ```text
 Upload Excel
-   ↓
-Save uploaded file vào data/uploads
-   ↓
-Parse Excel
-   ↓
-Normalize column name
-   ↓
-Validate required fields và IP format
-   ↓
-Create/update Store theo store_code
-   ↓
-Create StoreStatus nếu chưa có
-   ↓
-Commit DB
-   ↓
-Return summary: created / updated / errors
+  → save pending file
+  → parse + normalize columns
+  → validate store_code/IP/duplicates
+  → preview create/update/errors
+  → user confirm
+  → backup DB nếu import lớn
+  → create/update Store
+  → ensure StoreStatus exists
+  → commit
 ```
 
 Cột hỗ trợ:
@@ -164,127 +116,45 @@ Cột hỗ trợ:
 - `Khu vực`, `Khu vuc` → `area`
 - `Địa chỉ`, `Dia chi` → `address`
 
-Tối ưu workflow import nên làm:
-
-- Backup DB trước khi import lớn.
-- Lưu import file theo timestamp.
-- Có import summary rõ lỗi dòng nào.
-- Phase sau có thể thêm preview + confirm trước commit.
-
-### Safe import rule
-
-Import không được làm mất dữ liệu cũ ngoài ý muốn.
-
-Rule bắt buộc:
+Safe import rules:
 
 - Sanitize uploaded filename, không cho path traversal.
-- Nếu Excel thiếu một cột optional, không overwrite field cũ bằng `None`.
-- Nếu cell blank, mặc định không overwrite field cũ.
-- Chỉ overwrite blank nếu có option explicit như `allow_blank_overwrite=true`.
-- Backup DB trước import nếu số dòng lớn hơn 50 hoặc trước mọi import production.
-
-Ví dụ:
-
-```text
-File import không có cột WAN DNS
-→ không được xoá `store.wan_dns` đang tồn tại trong DB.
-
-File import có cột WAN DNS nhưng cell blank
-→ mặc định không được xoá `store.wan_dns` cũ.
-```
+- Store code phải là 7-8 số và bắt đầu bằng `70000`.
+- Báo lỗi store_code trùng trong cùng file Excel.
+- Excel thiếu optional column thì không overwrite field cũ bằng `None`.
+- Cell blank mặc định không overwrite field cũ.
+- Backup DB trước import nếu số dòng hợp lệ lớn hơn 50.
 
 ## 7. Monitor workflow
 
 ```text
 Start monitor cycle
-   ↓
-Acquire monitor lock
-   ↓
-Load enabled stores
-   ↓
-Async check each store với max concurrency
-   ├── WAN/DNS check
-   └── Tunnel check
-   ↓
-Apply retry per target theo PING_RETRY
-   ↓
-Update StoreStatus counters
-   ↓
-Apply DOWN_THRESHOLD / UP_THRESHOLD
-   ↓
-Open / update / resolve Incident
-   ↓
-Commit DB
-   ↓
-Send Telegram alerts/recoveries
-   ↓
-Release monitor lock
-   ↓
-Sleep MONITOR_INTERVAL_SECONDS
+  → acquire cross-process file lock data/monitor.lock
+  → load enabled stores
+  → async check WAN/DNS + IP Tunnel with max concurrency
+  → apply PING_RETRY per target
+  → update status counters
+  → apply DOWN_THRESHOLD / UP_THRESHOLD
+  → open/update/resolve Incident
+  → commit DB state
+  → send Telegram alerts/recoveries
+  → mark sent flags only after Telegram success
+  → release lock
 ```
 
-### Monitor lock
-
-Phải có lock chống chạy trùng giữa:
-
-- worker loop
-- manual `/monitor/run-once`
-- nhiều request run-once đồng thời
-
-Vì web và worker là 2 process khác nhau, không dùng `asyncio.Lock` làm lock chính.
-
-Implementation đã chốt:
-
-- Dùng cross-process file lock.
-- Library khuyến nghị: `filelock`.
-- Lock path: `data/monitor.lock`.
-- Timeout: `0` hoặc timeout rất ngắn để không block service.
-- Nếu lock busy, cycle/request mới phải skip an toàn.
-
-Nếu monitor đang chạy, request mới nên trả về trạng thái kiểu:
+Nếu lock busy, cycle/request mới skip an toàn:
 
 ```json
-{"status": "skipped", "reason": "monitor already running"}
+{"status":"skipped","reason":"monitor already running"}
 ```
 
-## 8. Check logic
+## 8. Check và status logic
 
-### WAN/DNS
+### Check target
 
-```text
-Nếu có wan_dns:
-    resolve DNS/hostname nếu có thể
-    ping target
-Nếu resolve fail:
-    vẫn thử ping target vì target có thể là IP
-Nếu không có wan_dns:
-    status UNKNOWN
-```
-
-### Tunnel
-
-```text
-Nếu có ip_tunnel:
-    ping IP Tunnel
-Nếu không có ip_tunnel:
-    status UNKNOWN
-```
-
-### Retry
-
-`PING_RETRY` phải được dùng thật.
-
-Khuyến nghị:
-
-```text
-ping -c PING_RETRY -W PING_TIMEOUT_SECONDS target
-Pass nếu có ít nhất 1 reply.
-Fail nếu toàn bộ retry fail.
-```
-
-Không cần tính latency/packet loss trong giai đoạn này.
-
-## 9. Status engine workflow
+- WAN/DNS: resolve nếu có thể, rồi ping target; nếu resolve fail vẫn thử ping vì target có thể là IP.
+- Tunnel: ping `ip_tunnel`.
+- `PING_RETRY` được dùng thật; pass nếu có ít nhất 1 reply.
 
 ### Derived status
 
@@ -293,222 +163,88 @@ WAN UP    + Tunnel UP    → UP
 WAN DOWN  + Tunnel UP    → WAN_DOWN
 WAN UP    + Tunnel DOWN  → TUNNEL_DOWN
 WAN DOWN  + Tunnel DOWN  → DOWN
-Thiếu dữ liệu / không check được → UNKNOWN
+Thiếu target / không check được → UNKNOWN
 ```
 
-### Down threshold
+Nếu store chỉ cấu hình WAN hoặc chỉ cấu hình Tunnel, status được derive theo target đang có.
 
-Chỉ mở hoặc chuyển incident khi fail liên tiếp đạt ngưỡng:
+### Threshold
 
-```text
-fail_count >= DOWN_THRESHOLD
-```
-
-Mặc định:
-
-```env
-DOWN_THRESHOLD=3
-```
-
-### Up threshold
-
-Chỉ resolve incident khi cả WAN và Tunnel UP liên tiếp đạt ngưỡng:
-
-```text
-wan_success_count >= UP_THRESHOLD
-AND tunnel_success_count >= UP_THRESHOLD
-```
-
-Mặc định:
-
-```env
-UP_THRESHOLD=2
-```
+- Mở/chuyển incident khi fail liên tiếp đạt `DOWN_THRESHOLD`.
+- Resolve incident khi các target bắt buộc UP liên tiếp đạt `UP_THRESHOLD`.
+- `UNKNOWN` không được tính là UP để recovery.
 
 Counter rule:
 
 ```text
-WAN UP:
-    wan_success_count += 1
-    wan_fail_count = 0
-WAN DOWN:
-    wan_fail_count += 1
-    wan_success_count = 0
-WAN UNKNOWN:
-    không coi là UP, không được dùng để recovery
-
-Tunnel UP:
-    tunnel_success_count += 1
-    tunnel_fail_count = 0
-Tunnel DOWN:
-    tunnel_fail_count += 1
-    tunnel_success_count = 0
-Tunnel UNKNOWN:
-    không coi là UP, không được dùng để recovery
+Target UP:      success_count += 1, fail_count = 0
+Target DOWN:    fail_count += 1, success_count = 0
+Target UNKNOWN: không tính recovery
 ```
 
-Mục tiêu: giảm alert flapping khi line chập chờn.
-
-### Incident rules
+## 9. Alert workflow
 
 ```text
-Nếu confirmed down:
-    Nếu chưa có OPEN incident:
-        tạo incident OPEN
-        gửi alert
-    Nếu đã có OPEN incident:
-        update incident_type/detail nếu trạng thái nặng hơn hoặc thay đổi
-        không gửi duplicate alert liên tục
-
-Nếu confirmed up:
-    Resolve tất cả OPEN incident của store
-    set ended_at + duration_seconds
-    gửi recovery một lần
+Status transition / incident event
+  → build in-memory alert event
+  → commit DB state
+  → send Telegram
+  → if success: mark alert_sent/recovery_sent + last_alert_at
+  → if fail: keep sent flags false, log error, do not rollback incident state
 ```
 
-## 10. Alert workflow
+Batch alert:
 
-```text
-State transition detected
-   ↓
-Create in-memory alert event
-   ↓
-Create/update/resolve incident
-   ↓
-Commit DB state
-   ↓
-Send Telegram
-   ↓
-If send success: mark alert_sent/recovery_sent + last_alert_at, then commit again
-If send fail: keep sent flags false, log error, retry/manual resend later
-```
+- 1-5 alerts: gửi chi tiết từng store.
+- 6-30 alerts: gửi 1 summary theo status/region/area.
+- >30 alerts: gửi 1 major incident summary.
 
-Rule quan trọng:
+## 10. GUI workflow
 
-- Không mark `alert_sent` trước khi Telegram gửi thành công.
-- Không mark `recovery_sent` trước khi Telegram gửi thành công.
-- Telegram lỗi không được rollback trạng thái incident đã detect.
-- Không để lỗi Telegram làm crash monitor cycle.
+Tất cả GUI/admin routes được bảo vệ bằng auth khi `AUTH_ENABLED=true`:
 
-### Alert dedup
+- `/`, `/stores`, `/stores/{id}`
+- `/import`, `/import/preview`, `/import/confirm`, `/import/cancel`
+- `/incidents`, `/incidents/export`
+- `/backups`, backup create/download/delete/restore
+- `/monitor/run-once`, `/telegram/test`, `/api/stores`
 
-Không gửi lại cùng một alert nếu:
+GUI hiện có:
 
-- store vẫn đang trong cùng incident `OPEN`
-- trạng thái chưa chuyển đáng kể
-- alert đã gửi rồi
+- Dashboard: tổng store, count theo status, bảng 100 stores đầu.
+- Stores: search/filter, status hiện tại, xóa store khi cần.
+- Store detail: thông tin store + incidents gần nhất.
+- Incidents: filter và export Excel.
+- Import: preview + confirm/cancel.
+- Backups: SQLite backup/restore UI.
 
-### Batch alert
+Delete store rule:
 
-Khi nhiều cửa hàng đổi trạng thái trong cùng cycle:
+- Xóa store là hard delete.
+- Xóa kèm `StoreStatus` và các `Incident` liên quan để tránh dữ liệu mồ côi.
+- Chỉ hiển thị action xóa ở trang `/stores`, không hiển thị trên dashboard.
 
-```text
-1-5 alerts:
-    gửi chi tiết từng cửa hàng
-
-6-30 alerts:
-    gửi 1 summary theo status/region/area + danh sách rút gọn
-
->30 alerts:
-    gửi 1 major incident summary, nhóm theo region/area/status
-```
-
-Format summary khuyến nghị:
-
-```text
-🔴 TH NETWORK ALERT SUMMARY
-
-Tổng affected: 12
-
-Theo trạng thái:
-- DOWN: 5
-- WAN_DOWN: 4
-- TUNNEL_DOWN: 3
-
-Theo khu vực:
-- HCM: 7
-- Hà Nội: 5
-
-Danh sách rút gọn:
-1. CH001 - DOWN - HCM
-2. CH002 - WAN_DOWN - Hà Nội
-...
-```
-
-Format major incident khuyến nghị:
-
-```text
-🚨 TH NETWORK MAJOR INCIDENT
-
-Tổng affected: 86
-
-Top khu vực:
-- HCM: 20
-- Hà Nội: 14
-- Đà Nẵng: 8
-
-Gợi ý: kiểm tra hạ tầng WAN/VPN/DNS trung tâm.
-```
-
-Mục tiêu: tránh spam Telegram khi mất diện rộng.
-
-## 11. GUI workflow
-
-### Dashboard
-
-- Tổng số store.
-- Count theo status.
-- Danh sách store mới nhất/quan trọng.
-
-### Stores
-
-- Search theo store code, PC name, IP tunnel, area.
-- Filter theo status.
-- Hiển thị status hiện tại.
-
-### Incidents
-
-- Danh sách incident mới nhất.
-- Trạng thái OPEN/RESOLVED.
-- Thời gian bắt đầu/kết thúc/duration.
-
-### Import
-
-- Upload Excel.
-- Hiển thị summary created/updated/errors.
-
-### Admin actions
-
-Các action sau nên được bảo vệ bằng auth khi triển khai ngoài localhost/LAN tin cậy:
-
-- `/import`
-- `/monitor/run-once`
-- `/telegram/test`
-
-## 12. Security/Ops workflow
+## 11. Security/Ops
 
 Production checklist:
 
-- Chạy bằng systemd service riêng.
-- Không chạy bằng root nếu không cần.
-- Có `.env` riêng, không commit token Telegram.
-- Bật SQLite WAL/busy timeout.
+- Chạy bằng systemd service riêng, không chạy root nếu không cần.
+- `.env` riêng, không commit token/password/session secret.
+- Bật `AUTH_ENABLED=true`.
+- Bật SQLite WAL + busy timeout.
 - Có monitor lock.
 - Có log rotation.
-- Backup DB trước import lớn.
-- Thêm GUI auth nếu expose ngoài máy local/LAN tin cậy.
+- Backup DB trước import lớn hoặc thao tác production rủi ro.
 
-Logging tối thiểu:
+Runtime files không commit:
 
-- Monitor cycle start/end.
-- Số store checked.
-- Số alert/recovery generated.
-- Cycle skipped do lock busy.
-- Telegram send fail.
-- Import result.
-- Migration result.
+- `.env`
+- `.pytest_cache/`
+- `__pycache__/`
+- `data/*.db`, upload/import preview files
+- `logs/*.log`
 
-## 13. Config chuẩn
+## 12. Config chuẩn
 
 ```env
 APP_HOST=0.0.0.0
@@ -523,236 +259,50 @@ MAX_CONCURRENCY=150
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 TIMEZONE=Asia/Ho_Chi_Minh
+LOG_LEVEL=INFO
+AUTH_ENABLED=true
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
+SESSION_SECRET=change-this-random-secret
+SESSION_COOKIE_NAME=thnm_session
+SESSION_MAX_AGE_SECONDS=28800
 ```
 
-## 14. Roadmap đã cập nhật
+## 13. Test / verification
 
-### Phase 1 — Stability Core
+```bash
+python -m compileall app monitor alerts importers scripts tests
+python -m pytest
+```
 
-- Dùng thật `PING_RETRY`.
-- Implement `UP_THRESHOLD`.
-- Thêm monitor lock.
-- Deduplicate active incident.
-- Bật SQLite WAL + busy timeout.
+Current expected result: full pytest suite passes.
 
-### Phase 2 — Alert Quality
+Focused areas covered by tests:
 
-- Batch alert khi nhiều store down.
-- Alert dedup theo incident.
-- Recovery chỉ gửi một lần.
-- Alert summary theo region/area/status.
+- Auth/session protection.
+- Store list/detail/delete.
+- Import preview/confirm/cancel and import safety.
+- Status engine threshold/recovery/dedup.
+- Alert batching/dedup.
+- Backup/restore.
+- Incident export.
 
-### Phase 3 — GUI/Ops
+## 14. Known non-blocking cleanup
 
-- Auth login cho GUI.
-- Store detail page.
-- Export incident report Excel.
-- Import history/backup trước import.
-- Log rotation/systemd hardening.
+- FastAPI `on_event` deprecation: migrate to lifespan context manager later.
+- `datetime.utcnow()` deprecation: migrate to timezone-aware UTC later.
+- Starlette test client cookie deprecation: informational only.
 
-## 15. Antigravity implementation brief
+## 15. Rules for future code agents
 
-Dùng đoạn này khi giao task cho Antigravity. Mục tiêu là để code agent sửa đúng phần cần sửa, không rewrite project và không tự đổi kiến trúc.
-
-```text
-You are working on TH Network Monitor.
-Read README.md and ARCHITECTURE.md first. Treat ARCHITECTURE.md as canonical.
+Before editing, read [README.md](README.md) and this file. Treat this file as canonical.
 
 Hard constraints:
-- Do not change the chosen stack: FastAPI + Jinja2 + SQLite + SQLAlchemy + async worker + Telegram Bot API.
-- Do not implement latency or packet loss.
-- Do not rewrite the whole project.
-- Preserve existing routes, templates, model names, and service layout unless a small compatibility edit is required.
-- Make small targeted changes and keep commits easy to review.
-- If a required change conflicts with ARCHITECTURE.md, stop and document the conflict instead of guessing.
 
-Current code gaps to fix for Phase 1, verified against the current skeleton:
-- app.models.StoreStatus currently lacks wan_success_count and tunnel_success_count.
-- monitor.checker.ping_host currently uses ping -c 1 and does not use settings.ping_retry.
-- monitor.worker.run_once has no cross-process lock.
-- monitor.status_engine.update_status_and_incident can create duplicate OPEN incidents.
-- monitor.status_engine resolves after a single UP cycle and does not use settings.up_threshold.
-- monitor.worker sends Telegram after DB commit but does not update alert_sent/recovery_sent after a successful send.
-- app.database.init_db only runs create_all(); it does not enable WAL/busy_timeout or migrate existing SQLite DBs.
-- app.main.import_upload saves UploadFile.filename directly and importers.excel_importer overwrites optional fields with None/blank values. This belongs to Phase 3 unless explicitly assigned.
-
-Implement Phase 1 Stability Core only:
-1. Add wan_success_count and tunnel_success_count columns to StoreStatus.
-2. Add idempotent SQLite migration for those columns before app/worker use the DB.
-3. Configure SQLite with WAL and busy_timeout=5000 for every SQLite connection.
-4. Use PING_RETRY in ping checks. Either call `ping -c PING_RETRY -W timeout target` or loop attempts; pass if at least one attempt succeeds.
-5. Add cross-process monitor lock using filelock at data/monitor.lock. If lock is busy, return {"status":"skipped","reason":"monitor already running"} and do not run checks.
-6. Implement UP_THRESHOLD with the explicit success counters. Recovery requires WAN and Tunnel both UP for UP_THRESHOLD consecutive cycles.
-7. Prevent duplicate OPEN incidents per store. Reuse/update the existing OPEN incident instead of creating another.
-8. Keep Telegram failure isolated from DB state. Do not mark sent flags before successful send. After a successful send, update alert_sent/recovery_sent and last_alert_at in a second small transaction.
-9. Add/update tests for checker retry, status_engine thresholds/dedup, SQLite migration/WAL, and monitor lock.
-
-Suggested work order:
-1. Inspect current files: app/database.py, app/models.py, monitor/checker.py, monitor/status_engine.py, monitor/worker.py, alerts/telegram.py, tests/ if present.
-2. Add database/model/migration changes first. Keep migrations idempotent and safe for an already-created DB.
-3. Add checker retry with minimal function signature changes.
-4. Add monitor lock around the whole run_once cycle, including manual route usage.
-5. Refactor status engine carefully. Prefer small helper functions over rewriting the whole module.
-6. Add tests. If no tests folder exists, create pytest tests with fake stores/SQLite temp DB and monkeypatch ping/Telegram.
-7. Run: python -m compileall app monitor alerts importers scripts
-8. Run: pytest
-9. Update README.md only if setup/test commands changed.
-10. Provide a concise implementation summary and any remaining risks.
-
-Do not start Phase 2 or Phase 3 in this task.
-```
-
-## 16. File-level implementation map for Phase 1
-
-Antigravity/code agent nên bám theo map này để tránh sửa lan man:
-
-| File | Việc cần làm | Không làm |
-|---|---|---|
-| `app/models.py` | Thêm `wan_success_count`, `tunnel_success_count` vào `StoreStatus` | Không rename bảng/cột cũ |
-| `app/database.py` | Bật SQLite WAL/busy_timeout, thêm migration idempotent | Không đưa Alembic/PostgreSQL vào Phase 1 |
-| `monitor/checker.py` | Cho `ping_host()` nhận retry và dùng thật `PING_RETRY` | Không tính latency/packet loss |
-| `monitor/worker.py` | Truyền retry vào checker, bọc `run_once()` bằng `filelock` | Không đổi service layout |
-| `monitor/status_engine.py` | Counter success/fail, UP_THRESHOLD, dedup OPEN incident | Không tạo nhiều incident OPEN cùng store |
-| `alerts/telegram.py` | Giữ lỗi Telegram không crash cycle nếu cần harden nhẹ | Không đổi provider alert |
-| `requirements.txt` | Thêm `filelock`, `pytest` nếu thiếu | Không thêm framework lớn |
-| `tests/` | Test retry, threshold, dedup, lock | Không phụ thuộc Telegram thật |
-
-## 17. Acceptance criteria
-
-### Phase 1 — Stability Core
-
-```text
-[ ] PING_RETRY thật sự được dùng.
-[ ] UP_THRESHOLD thật sự được dùng.
-[ ] Recovery không xảy ra chỉ sau 1 lần UP nếu UP_THRESHOLD > 1.
-[ ] Worker và /monitor/run-once không chạy trùng được.
-[ ] Existing OPEN incident không bị duplicate.
-[ ] SQLite bật WAL.
-[ ] SQLite có busy_timeout.
-[ ] Schema migration thêm cột mới nếu DB cũ đã tồn tại.
-[ ] Tests pass.
-[ ] `python -m compileall app monitor alerts importers scripts` pass.
-```
-
-### Phase 2 — Alert Quality
-
-```text
-[ ] 1-5 alerts gửi chi tiết từng store.
-[ ] 6-30 alerts gửi summary.
-[ ] >30 alerts gửi major incident summary.
-[ ] Recovery chỉ gửi 1 lần / incident.
-[ ] Telegram fail không làm mất incident state.
-[ ] Alert sent flags chỉ set true sau khi gửi thành công.
-```
-
-### Phase 3 — Import Safety
-
-```text
-[ ] Missing Excel column không xoá field cũ.
-[ ] Blank cell không overwrite dữ liệu cũ mặc định.
-[ ] Upload filename được sanitize.
-[ ] Import lớn backup DB trước khi commit.
-[ ] Import summary hiển thị created/updated/errors.
-```
-
-## 18. Test matrix bắt buộc
-
-### Status engine
-
-```text
-[ ] UNKNOWN → UP.
-[ ] UNKNOWN → WAN_DOWN sau đủ DOWN_THRESHOLD.
-[ ] UNKNOWN → TUNNEL_DOWN sau đủ DOWN_THRESHOLD.
-[ ] UNKNOWN → DOWN sau đủ DOWN_THRESHOLD.
-[ ] DOWN chưa recovery nếu mới UP 1 lần và UP_THRESHOLD=2.
-[ ] DOWN recovery sau UP đủ 2 lần.
-[ ] Không duplicate OPEN incident khi vẫn down.
-[ ] Resolve đúng duration_seconds.
-[ ] WAN missing / Tunnel missing trả UNKNOWN hợp lý.
-```
-
-### Monitor lock
-
-```text
-[ ] Lock busy → run_once skipped.
-[ ] Lock free → run_once runs.
-[ ] Worker loop và manual run-once không chạy đồng thời.
-```
-
-### Checker retry
-
-```text
-[ ] PING_RETRY=3 gọi ping với 3 attempts hoặc equivalent `ping -c 3`.
-[ ] Có ít nhất 1 reply thì target considered UP.
-[ ] Toàn bộ retry fail thì target considered DOWN.
-```
-
-### Import safety
-
-```text
-[ ] Missing optional column không xoá dữ liệu cũ.
-[ ] Blank cell không overwrite dữ liệu cũ mặc định.
-[ ] Invalid IP bị đưa vào errors.
-[ ] Duplicate store_code update existing.
-```
-
-## 19. Definition of done for an Antigravity PR
-
-Một PR/patch đạt chuẩn khi có đủ:
-
-- Scope chỉ nằm trong Phase được giao.
-- Không đổi stack/DB/service layout.
-- Có test hoặc tối thiểu có manual verification rõ ràng.
-- Không commit `.env`, DB runtime, upload files, logs, `__pycache__`.
-- README/ARCHITECTURE được cập nhật nếu behavior thực tế khác tài liệu.
-- Commit message rõ: ví dụ `Implement Phase 1 stability core`.
-
-## 20. Những thứ không làm ở giai đoạn này
-
-- Không đo latency.
-- Không tính packet loss.
-- Không cài endpoint agent tại store.
-- Không đổi SQLite sang DB khác nếu chưa có nhu cầu rõ ràng.
-- Không đổi stack web/API nếu chưa được xác nhận.
-
-## 21. Antigravity handoff checklist
-
-Trước khi giao cho Antigravity/code agent, nên copy rõ 4 phần sau, theo thứ tự:
-
-1. `README.md` → Project governance rule và Architecture & workflow.
-2. `ARCHITECTURE.md` mục 15 → Antigravity implementation brief.
-3. `ARCHITECTURE.md` mục 16 → File-level implementation map.
-4. `ARCHITECTURE.md` mục 17-19 → Acceptance criteria, test matrix, Definition of done.
-
-Prompt khuyến nghị:
-
-```text
-Implement Phase 1 Stability Core only. Do not implement Phase 2/3.
-Before editing, read README.md and ARCHITECTURE.md.
-After editing, run compileall and pytest.
-If any required change conflicts with ARCHITECTURE.md, stop and report the conflict.
-```
-
-Reviewer checklist sau khi Antigravity trả code:
-
-```text
-[ ] Diff không rewrite project hoặc đổi stack.
-[ ] Không đụng latency/packet loss.
-[ ] Không tự đổi import workflow trừ khi task Phase 3 được giao.
-[ ] `requirements.txt` chỉ thêm dependency nhỏ cần thiết như filelock/pytest.
-[ ] `run_once()` skip an toàn khi lock busy.
-[ ] Test có monkeypatch, không phụ thuộc Telegram thật hoặc mạng thật.
-[ ] Không commit runtime files: .env, data/*.db, data/uploads/*, logs/*, __pycache__.
-```
-
-## 22. Deferred optimizations
-
-Các tối ưu này hợp lý nhưng không nên nhét vào Phase 1 để tránh Antigravity làm quá scope:
-
-- Auth/login cho GUI trước khi expose ngoài LAN tin cậy.
-- Import preview + confirm trước commit.
-- Backup/restore UI cho SQLite DB.
-- Export incident report Excel.
-- Alert batch/summary nâng cao.
-- Log rotation và systemd hardening chi tiết.
-- PostgreSQL/Alembic nếu workload vượt SQLite.
+- Do not change FastAPI + Jinja2 + SQLite + SQLAlchemy + async worker + Telegram stack without approval.
+- Do not implement latency/packet loss unless explicitly requested.
+- Do not rewrite the project; make small targeted changes.
+- Preserve routes/templates/model names unless a small compatibility edit is required.
+- If a required change conflicts with this architecture, stop and report the conflict.
+- Add/update tests for behavior changes.
+- Do not commit runtime/cache files.

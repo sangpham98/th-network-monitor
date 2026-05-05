@@ -4,11 +4,19 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/phamsang/.openclaw/workspace/th-network-monitor
-EnvironmentFile=/home/phamsang/.openclaw/workspace/th-network-monitor/.env
-ExecStart=/home/phamsang/.openclaw/workspace/th-network-monitor/.venv/bin/uvicorn app.main:app --host ${APP_HOST} --port ${APP_PORT}
+WorkingDirectory=/home/phamsang/Documents/th-network-monitor
+EnvironmentFile=/home/phamsang/Documents/th-network-monitor/.env
+ExecStart=/home/phamsang/Documents/th-network-monitor/.venv/bin/uvicorn app.main:app --host ${APP_HOST} --port ${APP_PORT}
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/phamsang/Documents/th-network-monitor/data /home/phamsang/Documents/th-network-monitor/logs
+UMask=0077
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
