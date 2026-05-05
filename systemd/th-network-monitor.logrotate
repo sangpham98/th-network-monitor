@@ -1,8 +1,9 @@
-/home/phamsang/Documents/th-network-monitor/logs/*.log {
+/var/log/th-network-monitor/*.log {
     daily
     rotate 14
     compress
     missingok
     notifempty
     copytruncate
+    create 0640 thnm thnm
 }

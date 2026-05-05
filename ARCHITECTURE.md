@@ -137,6 +137,7 @@ Start monitor cycle
   → apply DOWN_THRESHOLD / UP_THRESHOLD
   → open/update/resolve Incident
   → commit DB state
+  → collect old OPEN incidents with alert_sent=false
   → send Telegram alerts/recoveries
   → mark sent flags only after Telegram success
   → release lock
@@ -188,6 +189,7 @@ Target UNKNOWN: không tính recovery
 Status transition / incident event
   → build in-memory alert event
   → commit DB state
+  → add old OPEN incidents with alert_sent=false when Telegram is configured
   → send Telegram
   → if success: mark alert_sent/recovery_sent + last_alert_at
   → if fail: keep sent flags false, log error, do not rollback incident state
@@ -198,6 +200,8 @@ Batch alert:
 - 1-5 alerts: gửi chi tiết từng store.
 - 6-30 alerts: gửi 1 summary theo status/region/area.
 - >30 alerts: gửi 1 major incident summary.
+- Recovery 1-5: gửi chi tiết từng store; recovery >5: gửi 1 recovery summary.
+- Nếu Telegram chưa cấu hình, worker không query retry pending alert để tránh scan lặp vô ích.
 
 ## 10. GUI workflow
 
@@ -217,6 +221,11 @@ GUI hiện có:
 - Incidents: filter và export Excel.
 - Import: preview + confirm/cancel.
 - Backups: SQLite backup/restore UI.
+
+Datetime display rule:
+
+- DB timestamps are stored as UTC-naive datetimes.
+- GUI renders status/incident timestamps through `TIMEZONE`, default `Asia/Ho_Chi_Minh`.
 
 Delete store rule:
 
@@ -260,6 +269,8 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 TIMEZONE=Asia/Ho_Chi_Minh
 LOG_LEVEL=INFO
+DATA_DIR=./data
+LOG_DIR=./logs
 AUTH_ENABLED=true
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-this-password
@@ -267,6 +278,12 @@ SESSION_SECRET=change-this-random-secret
 SESSION_COOKIE_NAME=thnm_session
 SESSION_MAX_AGE_SECONDS=28800
 ```
+
+Config loading rule:
+
+- Local/dev loads repo `.env` by default.
+- Installed systemd services and `thnm` set `THNM_ENV_FILE=/etc/th-network-monitor/.env` explicitly.
+- The app does not auto-probe `/etc` during local runs.
 
 ## 13. Test / verification
 
@@ -289,8 +306,6 @@ Focused areas covered by tests:
 
 ## 14. Known non-blocking cleanup
 
-- FastAPI `on_event` deprecation: migrate to lifespan context manager later.
-- `datetime.utcnow()` deprecation: migrate to timezone-aware UTC later.
 - Starlette test client cookie deprecation: informational only.
 
 ## 15. Rules for future code agents

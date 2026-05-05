@@ -1,8 +1,10 @@
 import secrets
 import shutil
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -14,6 +16,7 @@ from sqlalchemy.orm import Session
 from alerts.telegram import send_telegram
 from app.backups import create_sqlite_backup, list_backups, resolve_backup, restore_sqlite_backup, sqlite_db_path
 from app.auth import auth_configured, clear_login_cookie, require_auth, set_login_cookie
+from app.config import DEFAULT_TIMEZONE, settings
 from app.database import get_db, init_db
 from app.logging_config import configure_logging
 from app.models import Incident, Store, StoreStatus
@@ -22,8 +25,8 @@ from importers.excel_importer import import_excel, preview_excel
 from monitor.worker import run_once
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-UPLOAD_DIR = BASE_DIR / "data" / "uploads"
-PREVIEW_DIR = BASE_DIR / "data" / "import_previews"
+UPLOAD_DIR = settings.data_dir / "uploads"
+PREVIEW_DIR = settings.data_dir / "import_previews"
 
 
 @asynccontextmanager
@@ -38,6 +41,25 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="TH Network Monitor", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "web" / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "web" / "templates")
+
+
+@lru_cache(maxsize=8)
+def _timezone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def local_datetime(value: datetime | None) -> str:
+    if value is None:
+        return "-"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(_timezone(settings.timezone)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+templates.env.filters["local_datetime"] = local_datetime
 
 
 @app.get("/login", response_class=HTMLResponse)

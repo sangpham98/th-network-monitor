@@ -39,9 +39,9 @@
       <tr><th>Tunnel</th><td>{{ status.tunnel_status if status else 'UNKNOWN' }}</td></tr>
       <tr><th>WAN fail/success</th><td>{{ status.wan_fail_count if status else 0 }} / {{ status.wan_success_count if status else 0 }}</td></tr>
       <tr><th>Tunnel fail/success</th><td>{{ status.tunnel_fail_count if status else 0 }} / {{ status.tunnel_success_count if status else 0 }}</td></tr>
-      <tr><th>Last check</th><td>{{ status.last_check_at if status and status.last_check_at else '-' }}</td></tr>
-      <tr><th>Last changed</th><td>{{ status.last_changed_at if status and status.last_changed_at else '-' }}</td></tr>
-      <tr><th>Last alert</th><td>{{ status.last_alert_at if status and status.last_alert_at else '-' }}</td></tr>
+      <tr><th>Last check</th><td>{{ status.last_check_at|local_datetime if status else '-' }}</td></tr>
+      <tr><th>Last changed</th><td>{{ status.last_changed_at|local_datetime if status else '-' }}</td></tr>
+      <tr><th>Last alert</th><td>{{ status.last_alert_at|local_datetime if status else '-' }}</td></tr>
     </tbody>
   </table>
 </section>
@@ -67,8 +67,8 @@
         <td>{{ incident.id }}</td>
         <td>{{ incident.incident_type }}</td>
         <td>{{ incident.status }}</td>
-        <td>{{ incident.started_at }}</td>
-        <td>{{ incident.ended_at or '-' }}</td>
+        <td>{{ incident.started_at|local_datetime }}</td>
+        <td>{{ incident.ended_at|local_datetime }}</td>
         <td>{{ incident.duration_seconds if incident.duration_seconds is not none else '-' }}</td>
         <td>{{ 'yes' if incident.alert_sent else 'no' }}</td>
         <td>{{ 'yes' if incident.recovery_sent else 'no' }}</td>

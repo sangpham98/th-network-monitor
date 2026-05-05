@@ -4,6 +4,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app import backups
 from app.database import Base
 from app.models import Store
 from importers import excel_importer
@@ -88,8 +89,8 @@ def test_duplicate_store_code_updates_existing(tmp_path):
 def test_large_import_creates_sqlite_backup(tmp_path, monkeypatch):
     db_file = tmp_path / "network_monitor.db"
     db_file.write_bytes(b"sqlite-db")
-    monkeypatch.setattr(excel_importer.settings, "database_url", f"sqlite:///{db_file}")
-    monkeypatch.setattr(excel_importer, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(backups.settings, "database_url", f"sqlite:///{db_file}")
+    monkeypatch.setattr(backups.settings, "data_dir", tmp_path)
 
     backup_path = excel_importer.backup_sqlite_db_if_needed(51)
 
@@ -101,8 +102,8 @@ def test_large_import_creates_sqlite_backup(tmp_path, monkeypatch):
 def test_small_import_does_not_create_backup(tmp_path, monkeypatch):
     db_file = tmp_path / "network_monitor.db"
     db_file.write_bytes(b"sqlite-db")
-    monkeypatch.setattr(excel_importer.settings, "database_url", f"sqlite:///{db_file}")
-    monkeypatch.setattr(excel_importer, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(backups.settings, "database_url", f"sqlite:///{db_file}")
+    monkeypatch.setattr(backups.settings, "data_dir", tmp_path)
 
     backup_path = excel_importer.backup_sqlite_db_if_needed(50)
 

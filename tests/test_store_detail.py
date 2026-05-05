@@ -12,7 +12,7 @@ from app.models import Incident, Store, StoreStatus
 
 
 def utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime(2026, 5, 5, 8, 30, 0, tzinfo=UTC).replace(tzinfo=None)
 
 
 def configure_auth(monkeypatch):
@@ -102,6 +102,7 @@ def test_authenticated_user_can_open_store_detail(monkeypatch):
     assert "TUNNEL_DOWN" in response.text
     assert "TUNNEL_DOWN" in response.text
     assert "wan.example" in response.text
+    assert "2026-05-05 15:30:00" in response.text
 
 
 def test_store_detail_missing_store_returns_404(monkeypatch):

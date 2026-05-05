@@ -26,7 +26,7 @@ def sqlite_db_path() -> Path | None:
 
 
 def backup_dir() -> Path:
-    path = BASE_DIR / "data" / "backups"
+    path = settings.data_dir / "backups"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

@@ -4,7 +4,7 @@ import logging
 from filelock import Timeout, FileLock
 
 from alerts.telegram import send_telegram
-from app.config import BASE_DIR, settings
+from app.config import settings
 from app.database import SessionLocal, init_db
 from app.logging_config import configure_logging
 from app.models import Incident, Store, StoreStatus
@@ -16,7 +16,7 @@ from monitor.status_engine import (
     update_status_and_incident,
 )
 
-LOCK_PATH = BASE_DIR / "data" / "monitor.lock"
+LOCK_PATH = settings.data_dir / "monitor.lock"
 logger = logging.getLogger(__name__)
 
 
@@ -75,6 +75,21 @@ def _flatten_incident_ids(events: list[dict]) -> list[int]:
     for event in events:
         incident_ids.extend(event["incident_ids"])
     return incident_ids
+
+
+def _pending_open_alert_events(db, excluded_incident_ids: set[int]) -> list[dict]:
+    query = (
+        db.query(Incident, Store)
+        .join(Store, Store.id == Incident.store_id)
+        .filter(Incident.status == "OPEN", Incident.alert_sent.is_(False), Store.enabled.is_(True))
+    )
+    if excluded_incident_ids:
+        query = query.filter(Incident.id.notin_(excluded_incident_ids))
+
+    return [
+        _build_alert_event(store, incident.incident_type, False, [incident.id])
+        for incident, store in query.order_by(Incident.started_at.asc()).all()
+    ]
 
 
 def build_telegram_batches(events: list[dict]) -> list[dict]:
@@ -152,6 +167,9 @@ async def _run_once_locked():
                 alert_events.append(_build_alert_event(store, status, recovered, incident_ids))
 
         db.commit()
+        if settings.telegram_bot_token and settings.telegram_chat_id:
+            existing_incident_ids = set(_flatten_incident_ids(alert_events))
+            alert_events.extend(_pending_open_alert_events(db, existing_incident_ids))
         telegram_batches = build_telegram_batches(alert_events)
         telegram_sent = 0
         telegram_failed = 0

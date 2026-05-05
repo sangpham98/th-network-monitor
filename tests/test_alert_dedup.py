@@ -87,3 +87,31 @@ def test_mark_recovery_sent_sets_recovery_flag_and_last_alert_at(monkeypatch):
     assert incident.alert_sent is False
     assert incident.recovery_sent is True
     assert status.last_alert_at == ended_at
+
+
+def test_pending_open_alert_events_include_old_unsent_incidents():
+    db = make_db()
+    store = make_store(db)
+    incident = Incident(store_id=store.id, incident_type="TUNNEL_DOWN", status="OPEN", started_at=utc_now())
+    db.add(incident)
+    db.commit()
+
+    events = worker._pending_open_alert_events(db, set())
+
+    assert len(events) == 1
+    assert events[0]["store_code"] == "CH001"
+    assert events[0]["status"] == "TUNNEL_DOWN"
+    assert events[0]["incident_ids"] == [incident.id]
+    assert events[0]["recovered"] is False
+
+
+def test_pending_open_alert_events_exclude_current_cycle_incidents():
+    db = make_db()
+    store = make_store(db)
+    incident = Incident(store_id=store.id, incident_type="DOWN", status="OPEN", started_at=utc_now())
+    db.add(incident)
+    db.commit()
+
+    events = worker._pending_open_alert_events(db, {incident.id})
+
+    assert events == []

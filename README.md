@@ -53,7 +53,38 @@ data/             runtime SQLite DB/uploads/backups (not committed)
 logs/             runtime logs (not committed)
 ```
 
-## Setup
+## One-command install
+
+Recommended production install on a systemd Linux host:
+
+```bash
+sudo scripts/install.sh
+```
+
+Installed layout:
+
+```text
+/opt/th-network-monitor          application code + .venv
+/etc/th-network-monitor/.env     runtime configuration
+/var/lib/th-network-monitor      SQLite DB, uploads, previews, backups, lock
+/var/log/th-network-monitor      optional file logs
+/usr/local/bin/thnm              service helper
+```
+
+Useful commands:
+
+```bash
+thnm status
+thnm logs
+thnm edit-config
+thnm restart
+thnm run-once
+thnm backup
+```
+
+The installer preserves an existing `/etc/th-network-monitor/.env` and never deletes `/var/lib/th-network-monitor`. Installed services set `THNM_ENV_FILE=/etc/th-network-monitor/.env`; local runs use `.env` unless `THNM_ENV_FILE` is explicitly set.
+
+## Local development setup
 
 ```bash
 cd /home/phamsang/Documents/th-network-monitor
@@ -113,6 +144,7 @@ POST /monitor/run-once
 - Stores: search/filter, current status, store detail link, delete store when needed.
 - Store detail: inventory, status, recent incidents.
 - Incidents: list/filter/export Excel.
+- GUI timestamps display in `TIMEZONE` (default `Asia/Ho_Chi_Minh`) while DB timestamps are stored as UTC-naive values.
 - Import: Excel preview + confirm/cancel.
 - Backups: SQLite backup/restore UI.
 - Admin actions: Telegram test and manual monitor run.
@@ -160,6 +192,7 @@ Rules:
 - `UP_THRESHOLD` controls when incidents recover.
 - Each store should have at most one active `OPEN` incident.
 - Telegram sent flags are marked only after Telegram send succeeds.
+- Each worker cycle retries old `OPEN` incidents with `alert_sent=false` when Telegram is configured.
 
 ## Tests
 
@@ -171,20 +204,18 @@ python -m pytest
 
 ## systemd deployment
 
+Use the installer for production systemd deployment:
+
 ```bash
-sudo cp systemd/th-network-monitor-web.service /etc/systemd/system/
-sudo cp systemd/th-network-monitor-worker.service /etc/systemd/system/
-sudo cp systemd/th-network-monitor.logrotate /etc/logrotate.d/th-network-monitor
-sudo systemctl daemon-reload
-sudo systemctl enable --now th-network-monitor-web.service
-sudo systemctl enable --now th-network-monitor-worker.service
+sudo scripts/install.sh
 ```
 
 Logs:
 
 ```bash
-journalctl -u th-network-monitor-web.service -f
-journalctl -u th-network-monitor-worker.service -f
+thnm logs
+thnm web-logs
+thnm worker-logs
 ```
 
 ## Ops notes
@@ -192,4 +223,4 @@ journalctl -u th-network-monitor-worker.service -f
 - SQLite is acceptable for the current scale; production must use WAL + busy timeout.
 - If Telegram is noisy, increase `DOWN_THRESHOLD`, `UP_THRESHOLD`, or `MONITOR_INTERVAL_SECONDS`.
 - For larger future workloads, consider PostgreSQL + Alembic only after approval.
-- Known cleanup: FastAPI `on_event` deprecation and `datetime.utcnow()` deprecation are non-blocking.
+- Runtime config is explicit: installed services use `/etc/th-network-monitor/.env`; local/dev uses repo `.env`.

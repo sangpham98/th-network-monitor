@@ -4,7 +4,6 @@ from pathlib import Path
 import pandas as pd
 
 from app.backups import create_sqlite_backup
-from app.config import BASE_DIR, settings
 from app.models import Store, StoreStatus
 
 COLUMN_MAP = {
@@ -106,9 +105,6 @@ def backup_sqlite_db_if_needed(valid_rows: int) -> str | None:
     if valid_rows <= BACKUP_THRESHOLD_ROWS:
         return None
 
-    import app.backups as backups
-
-    backups.BASE_DIR = BASE_DIR
     backup_path = create_sqlite_backup("import")
     return str(backup_path) if backup_path else None
 

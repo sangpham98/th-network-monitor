@@ -33,8 +33,8 @@
       <td>{{ store.area or '-' }}</td>
       <td>{{ incident.incident_type }}</td>
       <td>{{ incident.status }}</td>
-      <td>{{ incident.started_at }}</td>
-      <td>{{ incident.ended_at or '-' }}</td>
+      <td>{{ incident.started_at|local_datetime }}</td>
+      <td>{{ incident.ended_at|local_datetime }}</td>
       <td>{{ incident.duration_seconds or '-' }}</td>
     </tr>
     {% else %}

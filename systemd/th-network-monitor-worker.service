@@ -1,19 +1,23 @@
 [Unit]
 Description=TH Network Monitor Worker
-After=network.target th-network-monitor-web.service
+After=network-online.target th-network-monitor-web.service
+Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/phamsang/Documents/th-network-monitor
-EnvironmentFile=/home/phamsang/Documents/th-network-monitor/.env
-ExecStart=/home/phamsang/Documents/th-network-monitor/.venv/bin/python -m monitor.worker
+User=thnm
+Group=thnm
+WorkingDirectory=/opt/th-network-monitor
+EnvironmentFile=/etc/th-network-monitor/.env
+Environment=THNM_ENV_FILE=/etc/th-network-monitor/.env
+ExecStart=/opt/th-network-monitor/.venv/bin/python -m monitor.worker
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=read-only
-ReadWritePaths=/home/phamsang/Documents/th-network-monitor/data /home/phamsang/Documents/th-network-monitor/logs
+ProtectHome=true
+ReadWritePaths=/var/lib/th-network-monitor /var/log/th-network-monitor
 UMask=0077
 StandardOutput=journal
 StandardError=journal

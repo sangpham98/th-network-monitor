@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="/opt/th-network-monitor"
+ENV_FILE="/etc/th-network-monitor/.env"
+SERVICE_USER="thnm"
+WEB_SERVICE="th-network-monitor-web.service"
+WORKER_SERVICE="th-network-monitor-worker.service"
+
+usage() {
+    cat <<'USAGE'
+Usage: thnm <command>
+
+Commands:
+  status        Show web and worker service status
+  start         Start web and worker services
+  stop          Stop worker and web services
+  restart       Restart web and worker services
+  logs          Follow web and worker journals
+  web-logs      Follow web service journal
+  worker-logs   Follow worker service journal
+  backup        Create a SQLite backup through the app backup module
+  run-once      Run one monitor cycle as the service user
+  edit-config   Edit /etc/th-network-monitor/.env
+USAGE
+}
+
+run_as_service_user() {
+    if [[ $EUID -eq 0 ]]; then
+        runuser -u "$SERVICE_USER" -- "$@"
+    else
+        sudo -u "$SERVICE_USER" -H "$@"
+    fi
+}
+
+run_app_python() {
+    local code="$1"
+    run_as_service_user env APP_DIR="$APP_DIR" THNM_ENV_FILE="$ENV_FILE" PYTHON_CODE="$code" bash <<'BASH'
+set -euo pipefail
+cd "$APP_DIR"
+. .venv/bin/activate
+python - <<'PY'
+import os
+exec(os.environ["PYTHON_CODE"])
+PY
+BASH
+}
+
+case "${1:-}" in
+    status)
+        systemctl status "$WEB_SERVICE" "$WORKER_SERVICE"
+        ;;
+    start)
+        systemctl start "$WEB_SERVICE" "$WORKER_SERVICE"
+        ;;
+    stop)
+        systemctl stop "$WORKER_SERVICE" "$WEB_SERVICE"
+        ;;
+    restart)
+        systemctl restart "$WEB_SERVICE" "$WORKER_SERVICE"
+        ;;
+    logs)
+        journalctl -u "$WEB_SERVICE" -u "$WORKER_SERVICE" -f
+        ;;
+    web-logs)
+        journalctl -u "$WEB_SERVICE" -f
+        ;;
+    worker-logs)
+        journalctl -u "$WORKER_SERVICE" -f
+        ;;
+    backup)
+        run_app_python 'from app.backups import create_sqlite_backup; print(create_sqlite_backup("manual"))'
+        ;;
+    run-once)
+        run_app_python 'import asyncio; from monitor.worker import run_once; print(asyncio.run(run_once()))'
+        ;;
+    edit-config)
+        "${EDITOR:-nano}" "$ENV_FILE"
+        echo "Run 'thnm restart' to apply changes."
+        ;;
+    -h|--help|help|"")
+        usage
+        ;;
+    *)
+        echo "Unknown command: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
