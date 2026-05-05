@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -7,6 +7,10 @@ from app.database import Base
 from app.models import Incident, Store, StoreStatus
 from monitor import worker
 from monitor.status_engine import update_status_and_incident
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def make_db():
@@ -48,7 +52,7 @@ def test_mark_alert_sent_sets_alert_flag_and_last_alert_at(monkeypatch):
     db = make_db()
     store = make_store(db)
     status = StoreStatus(store_id=store.id)
-    incident = Incident(store_id=store.id, incident_type="DOWN", status="OPEN", started_at=datetime.utcnow())
+    incident = Incident(store_id=store.id, incident_type="DOWN", status="OPEN", started_at=utc_now())
     db.add_all([status, incident])
     db.commit()
 
@@ -64,13 +68,13 @@ def test_mark_alert_sent_sets_alert_flag_and_last_alert_at(monkeypatch):
 def test_mark_recovery_sent_sets_recovery_flag_and_last_alert_at(monkeypatch):
     db = make_db()
     store = make_store(db)
-    ended_at = datetime.utcnow()
+    ended_at = utc_now()
     status = StoreStatus(store_id=store.id)
     incident = Incident(
         store_id=store.id,
         incident_type="DOWN",
         status="RESOLVED",
-        started_at=datetime.utcnow(),
+        started_at=utc_now(),
         ended_at=ended_at,
     )
     db.add_all([status, incident])

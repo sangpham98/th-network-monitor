@@ -153,21 +153,40 @@ async def _run_once_locked():
 
         db.commit()
         telegram_batches = build_telegram_batches(alert_events)
-        sent_alerts = 0
+        telegram_sent = 0
+        telegram_failed = 0
+        mark_failed = 0
         for batch in telegram_batches:
+            incident_ids = batch["incident_ids"]
+            recovered = batch["recovered"]
             sent = await send_telegram(batch["message"])
             if sent:
-                _mark_alert_sent(batch["incident_ids"], batch["recovered"])
-                sent_alerts += 1
+                telegram_sent += 1
+                try:
+                    _mark_alert_sent(incident_ids, recovered)
+                except Exception:
+                    mark_failed += 1
+                    logger.exception(
+                        "telegram sent but failed to mark incidents sent ids=%s recovered=%s",
+                        incident_ids,
+                        recovered,
+                    )
             else:
-                logger.warning("telegram send failed; sent flags kept false")
+                telegram_failed += 1
+                logger.warning(
+                    "telegram send failed; sent flags kept false ids=%s recovered=%s",
+                    incident_ids,
+                    recovered,
+                )
 
         return {
             "status": "ok",
             "checked": len(stores),
             "alerts": len(alert_events),
             "messages": len(telegram_batches),
-            "sent": sent_alerts,
+            "sent": telegram_sent,
+            "send_failed": telegram_failed,
+            "mark_failed": mark_failed,
         }
     finally:
         db.close()
@@ -193,11 +212,13 @@ async def run_forever():
                 logger.info("monitor skipped: %s", result["reason"])
             else:
                 logger.info(
-                    "monitor checked=%s alerts=%s messages=%s sent=%s",
+                    "monitor checked=%s alerts=%s messages=%s sent=%s send_failed=%s mark_failed=%s",
                     result["checked"],
                     result["alerts"],
                     result["messages"],
                     result["sent"],
+                    result.get("send_failed", 0),
+                    result.get("mark_failed", 0),
                 )
         except Exception:
             logger.exception("monitor error")

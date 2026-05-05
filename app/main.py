@@ -1,5 +1,6 @@
 import secrets
 import shutil
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -23,25 +24,28 @@ from monitor.worker import run_once
 BASE_DIR = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 PREVIEW_DIR = BASE_DIR / "data" / "import_previews"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="TH Network Monitor")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    configure_logging()
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    init_db()
+    yield
+
+
+app = FastAPI(title="TH Network Monitor", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "web" / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "web" / "templates")
-
-
-@app.on_event("startup")
-def startup():
-    configure_logging()
-    init_db()
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     return templates.TemplateResponse(
+        request,
         "login.html",
-        {"request": request, "error": "", "auth_configured": auth_configured()},
+        {"error": "", "auth_configured": auth_configured()},
     )
 
 
@@ -51,9 +55,9 @@ def login_submit(request: Request, username: str = Form(""), password: str = For
 
     if not credentials_valid(username, password):
         return templates.TemplateResponse(
+            request,
             "login.html",
             {
-                "request": request,
                 "error": "Sai thông tin đăng nhập hoặc auth chưa được cấu hình an toàn.",
                 "auth_configured": auth_configured(),
             },
@@ -78,8 +82,9 @@ def dashboard(request: Request, db: Session = Depends(get_db), current_user: str
     status_counts = dict(db.query(StoreStatus.overall_status, func.count()).group_by(StoreStatus.overall_status).all())
     stores = db.query(Store).outerjoin(StoreStatus).order_by(Store.store_code).limit(100).all()
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
-        {"request": request, "total": total, "status_counts": status_counts, "stores": stores, "current_user": current_user},
+        {"total": total, "status_counts": status_counts, "stores": stores, "current_user": current_user},
     )
 
 
@@ -94,7 +99,7 @@ def stores(request: Request, q: str = "", status: str = "", db: Session = Depend
     if status:
         query = query.filter(StoreStatus.overall_status == status)
     rows = query.order_by(Store.store_code).limit(1000).all()
-    return templates.TemplateResponse("stores.html", {"request": request, "stores": rows, "q": q, "status": status, "current_user": current_user})
+    return templates.TemplateResponse(request, "stores.html", {"stores": rows, "q": q, "status": status, "current_user": current_user})
 
 
 @app.post("/stores/{store_id}/delete")
@@ -123,14 +128,15 @@ def store_detail(request: Request, store_id: int, db: Session = Depends(get_db),
         .all()
     )
     return templates.TemplateResponse(
+        request,
         "store_detail.html",
-        {"request": request, "store": store, "incidents": incidents, "current_user": current_user},
+        {"store": store, "incidents": incidents, "current_user": current_user},
     )
 
 
 @app.get("/import", response_class=HTMLResponse)
 def import_page(request: Request, current_user: str = Depends(require_auth)):
-    return templates.TemplateResponse("import.html", {"request": request, "current_user": current_user})
+    return templates.TemplateResponse(request, "import.html", {"current_user": current_user})
 
 
 def _safe_upload_name(filename: str | None) -> str:
@@ -169,8 +175,9 @@ def _render_import_preview(request: Request, file: UploadFile, db: Session, curr
         shutil.copyfileobj(file.file, buffer)
     preview = preview_excel(db, target)
     return templates.TemplateResponse(
+        request,
         "import_preview.html",
-        {"request": request, "token": token, "preview": preview, "current_user": current_user},
+        {"token": token, "preview": preview, "current_user": current_user},
     )
 
 
@@ -224,9 +231,9 @@ def incidents(
 ):
     rows = _incident_query(db, status, store_code, from_date, to_date).limit(500).all()
     return templates.TemplateResponse(
+        request,
         "incidents.html",
         {
-            "request": request,
             "rows": rows,
             "current_user": current_user,
             "status": status,
@@ -272,8 +279,9 @@ def backups_page(request: Request, current_user: str = Depends(require_auth)):
     db_path = sqlite_db_path()
     backups = list_backups() if db_path else []
     return templates.TemplateResponse(
+        request,
         "backups.html",
-        {"request": request, "current_user": current_user, "db_path": db_path, "backups": backups},
+        {"current_user": current_user, "db_path": db_path, "backups": backups},
     )
 
 

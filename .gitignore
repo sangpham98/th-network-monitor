@@ -4,9 +4,9 @@ __pycache__/
 *.py[cod]
 .env
 *.db
+*.db-*
 *.sqlite
 *.sqlite3
-data/uploads/
-data/import_previews/
-logs/*.log
+data/
+logs/
 .DS_Store

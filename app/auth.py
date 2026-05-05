@@ -86,8 +86,8 @@ def require_auth(request: Request) -> str:
 
 def set_login_cookie(response, username: str):
     response.set_cookie(
-        settings.session_cookie_name,
-        create_session_token(username),
+        key=settings.session_cookie_name,
+        value=create_session_token(username),
         max_age=settings.session_max_age_seconds,
         httponly=True,
         samesite="lax",
@@ -95,4 +95,8 @@ def set_login_cookie(response, username: str):
 
 
 def clear_login_cookie(response):
-    response.delete_cookie(settings.session_cookie_name)
+    response.delete_cookie(
+        key=settings.session_cookie_name,
+        httponly=True,
+        samesite="lax",
+    )

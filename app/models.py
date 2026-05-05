@@ -1,9 +1,13 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Store(Base):
@@ -19,8 +23,8 @@ class Store(Base):
     area: Mapped[str | None] = mapped_column(String(128), index=True)
     address: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     status = relationship("StoreStatus", back_populates="store", uselist=False, cascade="all, delete-orphan")
 
@@ -50,7 +54,7 @@ class Incident(Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     incident_type: Mapped[str] = mapped_column(String(32), index=True)
     status: Mapped[str] = mapped_column(String(16), default="OPEN", index=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime)
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     alert_sent: Mapped[bool] = mapped_column(Boolean, default=False)

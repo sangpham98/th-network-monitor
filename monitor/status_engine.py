@@ -1,7 +1,11 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from html import escape
 
 from app.models import Incident, Store, StoreStatus
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _display(value) -> str:
@@ -151,7 +155,7 @@ def update_status_and_incident(
     down_threshold: int,
     up_threshold: int,
 ):
-    now = datetime.utcnow()
+    now = utc_now()
     status = store.status
     if status is None:
         status = StoreStatus(store_id=store.id)

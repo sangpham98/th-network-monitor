@@ -60,8 +60,9 @@ def test_authenticated_user_can_access_dashboard(monkeypatch):
     configure_auth(monkeypatch)
     client = TestClient(app)
     token = auth.create_session_token("admin")
+    client.cookies.set("test_session", token)
 
-    response = client.get("/", cookies={"test_session": token})
+    response = client.get("/")
 
     assert response.status_code == 200
     assert "TH Network Monitor" in response.text

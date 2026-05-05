@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -9,6 +9,10 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Incident, Store, StoreStatus
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def configure_auth(monkeypatch):
@@ -52,10 +56,10 @@ def make_db_override():
             overall_status="TUNNEL_DOWN",
             wan_success_count=2,
             tunnel_fail_count=3,
-            last_check_at=datetime.utcnow(),
+            last_check_at=utc_now(),
         )
     )
-    db.add(Incident(store_id=store.id, incident_type="TUNNEL_DOWN", status="OPEN", started_at=datetime.utcnow(), alert_sent=True))
+    db.add(Incident(store_id=store.id, incident_type="TUNNEL_DOWN", status="OPEN", started_at=utc_now(), alert_sent=True))
     db.commit()
 
     def override_get_db():

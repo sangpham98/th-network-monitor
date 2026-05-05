@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 
 from fastapi.testclient import TestClient
@@ -12,6 +12,10 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Incident, Store
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def configure_auth(monkeypatch):
@@ -34,7 +38,7 @@ def make_db_override():
     db.commit()
     db.refresh(store_1)
     db.refresh(store_2)
-    now = datetime.utcnow()
+    now = utc_now()
     db.add_all(
         [
             Incident(
