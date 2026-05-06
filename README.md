@@ -109,6 +109,28 @@ thnm backup
 
 The installer preserves an existing `/etc/th-network-monitor/.env` and never deletes `/var/lib/th-network-monitor`. Installed services set `THNM_ENV_FILE=/etc/th-network-monitor/.env`; local runs use `.env` unless `THNM_ENV_FILE` is explicitly set.
 
+The install script enables and starts both services immediately:
+
+```text
+th-network-monitor-web.service     uvicorn app.main:app on APP_PORT
+th-network-monitor-worker.service  python -m monitor.worker periodic loop
+```
+
+So a production install is a one-command app setup: after `sudo scripts/install.sh`, the GUI and periodic monitor worker should both be running.
+
+## Current capability summary
+
+Implemented and verified capabilities:
+
+- One-command systemd install with dedicated `thnm` service user, runtime directories, virtualenv, config preservation, web service, worker service, logrotate, and `thnm` helper command.
+- Auth-protected FastAPI/Jinja2 web GUI for dashboard, stores, store detail, import, incidents, backups, Telegram test, and manual monitor run.
+- Excel import preview/confirm flow with column normalization, duplicate detection, safe optional-field handling, and SQLite backup before large imports.
+- Periodic async monitor worker with cross-process lock, max concurrency, ping retry, status counters, incident open/update/resolve, and Telegram alert/recovery batching.
+- Dashboard/Stores display `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
+- Manual **Check now** runs `/monitor/run-once`; when submitted from the GUI it redirects back to the current page after completion, while direct API calls still receive JSON.
+- SQLite backup/restore UI and Excel incident export.
+- Pytest coverage for auth, store operations, import safety, status thresholds, worker lock, alert batching, backup/restore, and incident export.
+
 ## Local development setup
 
 ```bash

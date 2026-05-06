@@ -59,6 +59,12 @@ def local_datetime(value: datetime | None) -> str:
     return value.astimezone(_timezone(settings.timezone)).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _safe_redirect_path(value: str) -> str:
+    if value.startswith("/") and not value.startswith("//") and "\r" not in value and "\n" not in value:
+        return value
+    return "/"
+
+
 templates.env.filters["local_datetime"] = local_datetime
 
 
@@ -286,8 +292,11 @@ def incidents_export(
 
 
 @app.post("/monitor/run-once")
-async def monitor_run_once(_current_user: str = Depends(require_auth)):
-    return await run_once()
+async def monitor_run_once(return_to: str = Form(""), _current_user: str = Depends(require_auth)):
+    result = await run_once()
+    if return_to:
+        return RedirectResponse(url=_safe_redirect_path(return_to), status_code=303)
+    return result
 
 
 @app.post("/telegram/test")

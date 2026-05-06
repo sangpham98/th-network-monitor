@@ -43,6 +43,8 @@ systemd
         └── Periodic monitor loop
 ```
 
+The production installer copies both unit files, runs `systemctl daemon-reload`, then `systemctl enable --now` for both services. A successful `sudo scripts/install.sh` therefore leaves the web GUI and periodic worker running without a second manual start step.
+
 ## 4. Data model
 
 ### Store
@@ -221,6 +223,12 @@ GUI hiện có:
 - Incidents: filter và export Excel.
 - Import: preview + confirm/cancel.
 - Backups: SQLite backup/restore UI.
+- Check now: submit manual `/monitor/run-once`; GUI form gửi `return_to` nên sau khi check xong redirect lại trang hiện tại. Direct API call không có `return_to` vẫn trả JSON.
+
+Dashboard/Stores refresh rule:
+
+- Worker cập nhật `StoreStatus.last_check_at` trong DB mỗi monitor cycle thành công.
+- GUI đọc `last_check_at` khi render trang; không có realtime websocket/polling, nên người dùng cần refresh hoặc dùng Check now để thấy dữ liệu mới.
 
 Datetime display rule:
 
