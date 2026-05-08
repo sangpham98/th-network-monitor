@@ -55,36 +55,43 @@ logs/             runtime logs (not committed)
 
 ## One-command install
 
-Install prerequisites on a minimal Debian/Ubuntu host:
+**Step 1: Install prerequisites**
 
 ```bash
 sudo apt update
 sudo apt install -y git python3 python3-venv python3-dev rsync iputils-ping curl build-essential
 ```
 
-**Note:** Python 3.14+ requires SQLAlchemy from git main branch due to typing changes. The installer will handle this automatically, but if you encounter SQLAlchemy typing errors, run:
-
-```bash
-sudo -u thnm /opt/th-network-monitor/.venv/bin/pip uninstall -y sqlalchemy
-sudo -u thnm /opt/th-network-monitor/.venv/bin/pip install 'sqlalchemy @ git+https://github.com/sqlalchemy/sqlalchemy.git@main'
-sudo systemctl restart th-network-monitor-web th-network-monitor-worker
-```
-
-Bootstrap install from repository URL:
-
-```bash
-git clone <REPO_URL> /tmp/th-network-monitor
-sudo /tmp/th-network-monitor/scripts/install.sh
-```
-
-Example:
+**Step 2: Bootstrap install**
 
 ```bash
 git clone https://github.com/sangpham98/th-network-monitor.git /tmp/th-network-monitor
 sudo /tmp/th-network-monitor/scripts/install.sh
 ```
 
-After install completes, the web GUI and periodic monitor worker should both be running. Open `http://<server-ip>:8080` to access the dashboard.
+**Step 3: Verify services**
+
+```bash
+thnm status
+```
+
+Both `th-network-monitor-web.service` and `th-network-monitor-worker.service` should show `active (running)`.
+
+**Step 4: Access GUI**
+
+Open `http://<server-ip>:8080` in browser. Default login:
+- Username: `admin`
+- Password: check `/etc/th-network-monitor/.env` for auto-generated `ADMIN_PASSWORD`
+
+**Troubleshooting Python 3.14+**
+
+If services fail with SQLAlchemy typing errors on Python 3.14+:
+
+```bash
+sudo -u thnm /opt/th-network-monitor/.venv/bin/pip uninstall -y sqlalchemy
+sudo -u thnm /opt/th-network-monitor/.venv/bin/pip install 'sqlalchemy @ git+https://github.com/sqlalchemy/sqlalchemy.git@main'
+sudo systemctl restart th-network-monitor-web th-network-monitor-worker
+```
 
 ## Production deployment
 
