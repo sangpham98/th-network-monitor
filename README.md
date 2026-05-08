@@ -62,6 +62,14 @@ sudo apt update
 sudo apt install -y git python3 python3-venv python3-dev rsync iputils-ping curl build-essential
 ```
 
+**Note:** Python 3.14+ requires SQLAlchemy from git main branch due to typing changes. The installer will handle this automatically, but if you encounter SQLAlchemy typing errors, run:
+
+```bash
+sudo -u thnm /opt/th-network-monitor/.venv/bin/pip uninstall -y sqlalchemy
+sudo -u thnm /opt/th-network-monitor/.venv/bin/pip install 'sqlalchemy @ git+https://github.com/sqlalchemy/sqlalchemy.git@main'
+sudo systemctl restart th-network-monitor-web th-network-monitor-worker
+```
+
 Bootstrap install from repository URL:
 
 ```bash
