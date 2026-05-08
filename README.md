@@ -55,38 +55,30 @@ logs/             runtime logs (not committed)
 
 ## One-command install
 
-Install prerequisites for a minimal Debian/Ubuntu host:
+Install prerequisites on a minimal Debian/Ubuntu host:
 
 ```bash
 sudo apt update
 sudo apt install -y git python3 python3-venv python3-dev rsync iputils-ping curl build-essential
 ```
 
-The `build-essential` package provides gcc/g++ needed to compile pandas and other native dependencies. `python3-dev` provides Python headers.
-
-Recommended production install from a local checkout on a systemd Linux host:
+Bootstrap install from repository URL:
 
 ```bash
-sudo scripts/install.sh
+git clone <REPO_URL> /tmp/th-network-monitor
+sudo /tmp/th-network-monitor/scripts/install.sh
 ```
 
-If the target machine only has a repository URL, install with a bootstrap one-liner:
+Example:
 
 ```bash
-git clone <REPO_URL> /tmp/th-network-monitor && sudo /tmp/th-network-monitor/scripts/install.sh
+git clone https://github.com/sangpham98/th-network-monitor.git /tmp/th-network-monitor
+sudo /tmp/th-network-monitor/scripts/install.sh
 ```
 
-Or, if `scripts/bootstrap.sh` is hosted at a raw URL:
+After install completes, the web GUI and periodic monitor worker should both be running. Open `http://<server-ip>:8080` to access the dashboard.
 
-```bash
-curl -fsSL <BOOTSTRAP_RAW_URL> | sudo bash -s -- <REPO_URL>
-```
-
-The bootstrap script accepts an optional checkout directory:
-
-```bash
-sudo scripts/bootstrap.sh <REPO_URL> [/tmp/th-network-monitor-bootstrap]
-```
+## Production deployment
 
 Installed layout:
 
@@ -96,6 +88,13 @@ Installed layout:
 /var/lib/th-network-monitor      SQLite DB, uploads, previews, backups, lock
 /var/log/th-network-monitor      optional file logs
 /usr/local/bin/thnm              service helper
+```
+
+Services:
+
+```text
+th-network-monitor-web.service     uvicorn app.main:app on APP_PORT
+th-network-monitor-worker.service  python -m monitor.worker periodic loop
 ```
 
 Useful commands:
@@ -110,15 +109,6 @@ thnm backup
 ```
 
 The installer preserves an existing `/etc/th-network-monitor/.env` and never deletes `/var/lib/th-network-monitor`. Installed services set `THNM_ENV_FILE=/etc/th-network-monitor/.env`; local runs use `.env` unless `THNM_ENV_FILE` is explicitly set.
-
-The install script enables and starts both services immediately:
-
-```text
-th-network-monitor-web.service     uvicorn app.main:app on APP_PORT
-th-network-monitor-worker.service  python -m monitor.worker periodic loop
-```
-
-So a production install is a one-command app setup: after `sudo scripts/install.sh`, the GUI and periodic monitor worker should both be running.
 
 ## Current capability summary
 
@@ -249,22 +239,6 @@ Rules:
 . .venv/bin/activate
 python -m compileall app monitor alerts importers scripts tests
 python -m pytest
-```
-
-## systemd deployment
-
-Use the installer for production systemd deployment:
-
-```bash
-sudo scripts/install.sh
-```
-
-Logs:
-
-```bash
-thnm logs
-thnm web-logs
-thnm worker-logs
 ```
 
 ## Ops notes
