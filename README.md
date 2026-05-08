@@ -83,8 +83,10 @@ Install prerequisites for a minimal Debian/Ubuntu host:
 
 ```bash
 sudo apt update
-sudo apt install -y git python3 python3-venv rsync iputils-ping curl
+sudo apt install -y git python3 python3-venv python3-dev rsync iputils-ping curl build-essential
 ```
+
+The `build-essential` package provides gcc/g++ needed to compile pandas and other native dependencies. `python3-dev` provides Python headers.
 
 Installed layout:
 

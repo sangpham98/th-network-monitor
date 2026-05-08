@@ -102,6 +102,7 @@ main() {
     require_command useradd
     require_command groupadd
     require_command ping
+    require_command gcc
 
     ensure_user
     install_runtime_dirs
