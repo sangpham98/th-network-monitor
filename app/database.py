@@ -46,6 +46,8 @@ def run_sqlite_migrations():
 
     _add_column_if_missing("store_status", "wan_success_count", "INTEGER DEFAULT 0")
     _add_column_if_missing("store_status", "tunnel_success_count", "INTEGER DEFAULT 0")
+    _add_column_if_missing("store_status", "wan_down_window", "TEXT DEFAULT ''")
+    _add_column_if_missing("store_status", "tunnel_down_window", "TEXT DEFAULT ''")
 
 
 def init_db():

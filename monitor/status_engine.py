@@ -110,11 +110,33 @@ def derive_store_overall(store: Store, wan_ok: bool | None, tunnel_ok: bool | No
     return "UNKNOWN"
 
 
+DOWN_WINDOW_SIZE = 5
+
+
+def _clean_down_window(value: str | None) -> str:
+    return "".join(char for char in (value or "") if char in {"0", "1"})[-DOWN_WINDOW_SIZE:]
+
+
+def _append_down_window(value: str | None, ok: bool | None) -> str:
+    window = _clean_down_window(value)
+    if ok is True:
+        window += "0"
+    elif ok is False:
+        window += "1"
+    return window[-DOWN_WINDOW_SIZE:]
+
+
+def _target_confirmed_down(ok: bool | None, window: str | None, down_threshold: int) -> bool:
+    return ok is False and _clean_down_window(window).count("1") >= down_threshold
+
+
 def _set_target_counters(status: StoreStatus, wan_ok: bool | None, tunnel_ok: bool | None):
     status.wan_success_count = status.wan_success_count or 0
     status.wan_fail_count = status.wan_fail_count or 0
     status.tunnel_success_count = status.tunnel_success_count or 0
     status.tunnel_fail_count = status.tunnel_fail_count or 0
+    status.wan_down_window = _append_down_window(status.wan_down_window, wan_ok)
+    status.tunnel_down_window = _append_down_window(status.tunnel_down_window, tunnel_ok)
 
     if wan_ok is True:
         status.wan_success_count += 1
@@ -177,10 +199,11 @@ def update_status_and_incident(
         status.overall_status = effective_overall
         status.last_changed_at = now
 
-    confirmed_down = (
-        effective_overall != "UP"
-        and (status.wan_fail_count >= down_threshold or status.tunnel_fail_count >= down_threshold)
+    wan_confirmed_down = bool(store.wan_dns) and _target_confirmed_down(wan_ok, status.wan_down_window, down_threshold)
+    tunnel_confirmed_down = bool(store.ip_tunnel) and _target_confirmed_down(
+        tunnel_ok, status.tunnel_down_window, down_threshold
     )
+    confirmed_down = effective_overall != "UP" and (wan_confirmed_down or tunnel_confirmed_down)
     recovered = False
     incident_ids: list[int] = []
 
@@ -212,7 +235,7 @@ def update_status_and_incident(
             incident.status = "RESOLVED"
             incident.ended_at = now
             incident.duration_seconds = int((now - incident.started_at).total_seconds())
-            if not incident.recovery_sent:
+            if incident.alert_sent and not incident.recovery_sent:
                 incident_ids.append(incident.id)
         changed = True
         recovered = True

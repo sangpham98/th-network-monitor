@@ -31,9 +31,9 @@ Excel inventory
   → monitor.worker hoặc /monitor/run-once
   → cross-process monitor lock
   → WAN/DNS + IP Tunnel check with retry
-  → DOWN_THRESHOLD / UP_THRESHOLD
+  → 4-of-5 DOWN window / UP_THRESHOLD recovery
   → incident open/update/resolve
-  → Telegram alert/recovery batching
+  → double-check DOWN before Telegram batching
   → Dashboard / Stores / Incidents GUI
 ```
 
@@ -164,7 +164,7 @@ Implemented and verified capabilities:
 - One-command systemd install with dedicated `thnm` service user, runtime directories, virtualenv, config preservation, web service, worker service, logrotate, and `thnm` helper command.
 - Auth-protected FastAPI/Jinja2 web GUI for dashboard, stores, store detail, import, incidents, backups, Telegram test, and manual monitor run.
 - Excel import preview/confirm flow with column normalization, duplicate detection, safe optional-field handling, and SQLite backup before large imports.
-- Periodic async monitor worker with cross-process lock, max concurrency, ping retry, status counters, incident open/update/resolve, and Telegram alert/recovery batching.
+- Periodic async monitor worker with cross-process lock, max concurrency, ping retry, 4-of-5 down window, incident open/update/resolve, pre-alert double-check, and Telegram alert/recovery batching.
 - Dashboard/Stores display `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
 - Manual **Check now** runs `/monitor/run-once`; when submitted from the GUI it redirects back to the current page after completion, while direct API calls still receive JSON.
 - SQLite backup/restore UI and Excel incident export.
@@ -274,8 +274,11 @@ Statuses:
 Rules:
 
 - `PING_RETRY` is applied per target.
-- `DOWN_THRESHOLD` controls when incidents open/update.
-- `UP_THRESHOLD` controls when incidents recover.
+- `DOWN_THRESHOLD` controls how many failures are required in the last 5 known checks; default `4`.
+- A down incident opens/updates only when the target is currently failing and its 5-check window reaches `DOWN_THRESHOLD`.
+- `UP_THRESHOLD` controls consecutive successful required-target checks before recovery; default `2`.
+- DOWN alerts are double-checked before Telegram batching; if the recheck is UP, the alert is suppressed and retried next cycle if needed.
+- Recovery notifications are sent only for incidents whose DOWN alert was sent successfully.
 - Each store should have at most one active `OPEN` incident.
 - Telegram sent flags are marked only after Telegram send succeeds.
 - Each worker cycle retries old `OPEN` incidents with `alert_sent=false` when Telegram is configured.
@@ -291,6 +294,6 @@ python -m pytest
 ## Ops notes
 
 - SQLite is acceptable for the current scale; production must use WAL + busy timeout.
-- If Telegram is noisy, increase `DOWN_THRESHOLD`, `UP_THRESHOLD`, or `MONITOR_INTERVAL_SECONDS`.
+- If Telegram is noisy, increase `DOWN_THRESHOLD`, `PING_TIMEOUT_SECONDS`, `PING_RETRY`, or `UP_THRESHOLD`; avoid lowering the 4-of-5 down window unless false positives are acceptable.
 - For larger future workloads, consider PostgreSQL + Alembic only after approval.
 - Runtime config is explicit: installed services use `/etc/th-network-monitor/.env`; local/dev uses repo `.env`.

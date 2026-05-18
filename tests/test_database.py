@@ -15,9 +15,13 @@ def test_add_column_if_missing_is_idempotent(tmp_path, monkeypatch):
 
     database._add_column_if_missing("store_status", "wan_success_count", "INTEGER DEFAULT 0")
     database._add_column_if_missing("store_status", "wan_success_count", "INTEGER DEFAULT 0")
+    database._add_column_if_missing("store_status", "wan_down_window", "TEXT DEFAULT ''")
+    database._add_column_if_missing("store_status", "tunnel_down_window", "TEXT DEFAULT ''")
 
     columns = {column["name"] for column in inspect(test_engine).get_columns("store_status")}
     assert "wan_success_count" in columns
+    assert "wan_down_window" in columns
+    assert "tunnel_down_window" in columns
 
 
 def test_sqlite_pragmas_can_enable_wal_and_busy_timeout(tmp_path):

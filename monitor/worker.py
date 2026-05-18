@@ -19,6 +19,7 @@ from monitor.status_engine import (
 
 LOCK_PATH = settings.data_dir / "monitor.lock"
 logger = logging.getLogger(__name__)
+DOWN_STATUSES = {"WAN_DOWN", "TUNNEL_DOWN", "DOWN"}
 
 
 async def check_store(store: Store, semaphore: asyncio.Semaphore):
@@ -58,6 +59,7 @@ def _mark_alert_sent(incident_ids: list[int], recovered: bool):
 
 def _build_alert_event(store: Store, status: str, recovered: bool, incident_ids: list[int]) -> dict:
     return {
+        "store_id": store.id,
         "store_code": store.store_code,
         "pc_name": store.pc_name,
         "region": store.region,
@@ -69,6 +71,60 @@ def _build_alert_event(store: Store, status: str, recovered: bool, incident_ids:
         "incident_ids": incident_ids,
         "recovered": recovered,
     }
+
+
+def _derive_event_overall(event: dict, wan_ok: bool | None, tunnel_ok: bool | None) -> str:
+    wan_required = bool(event.get("wan_dns"))
+    tunnel_required = bool(event.get("ip_tunnel"))
+
+    if wan_required and tunnel_required:
+        if wan_ok is True and tunnel_ok is True:
+            return "UP"
+        if wan_ok is False and tunnel_ok is True:
+            return "WAN_DOWN"
+        if wan_ok is True and tunnel_ok is False:
+            return "TUNNEL_DOWN"
+        if wan_ok is False and tunnel_ok is False:
+            return "DOWN"
+    if wan_required and not tunnel_required:
+        if wan_ok is True:
+            return "UP"
+        if wan_ok is False:
+            return "WAN_DOWN"
+    if tunnel_required and not wan_required:
+        if tunnel_ok is True:
+            return "UP"
+        if tunnel_ok is False:
+            return "TUNNEL_DOWN"
+    return "UNKNOWN"
+
+
+async def _double_check_down_alert_event(event: dict, semaphore: asyncio.Semaphore) -> dict | None:
+    if event["recovered"]:
+        return event
+
+    async with semaphore:
+        wan_ok = (
+            await check_wan(event.get("wan_dns"), settings.ping_timeout_seconds, settings.ping_retry)
+            if event.get("wan_dns")
+            else None
+        )
+        tunnel_ok = (
+            await ping_host(event.get("ip_tunnel"), settings.ping_timeout_seconds, settings.ping_retry)
+            if event.get("ip_tunnel")
+            else None
+        )
+
+    status = _derive_event_overall(event, wan_ok, tunnel_ok)
+    if status not in DOWN_STATUSES:
+        return None
+    return {**event, "status": status}
+
+
+async def _double_check_down_alert_events(events: list[dict]) -> list[dict]:
+    semaphore = asyncio.Semaphore(settings.max_concurrency)
+    checked = await asyncio.gather(*(_double_check_down_alert_event(event, semaphore) for event in events))
+    return [event for event in checked if event is not None]
 
 
 def _flatten_incident_ids(events: list[dict]) -> list[int]:
@@ -172,9 +228,13 @@ async def _run_once_locked():
                 alert_events.append(_build_alert_event(store, status, recovered, incident_ids))
 
         db.commit()
+        suppressed_alerts = 0
         if settings.telegram_bot_token and settings.telegram_chat_id:
             existing_incident_ids = set(_flatten_incident_ids(alert_events))
             alert_events.extend(_pending_open_alert_events(db, existing_incident_ids))
+            alert_count_before_double_check = len(alert_events)
+            alert_events = await _double_check_down_alert_events(alert_events)
+            suppressed_alerts = alert_count_before_double_check - len(alert_events)
         telegram_batches = build_telegram_batches(alert_events)
         telegram_sent = 0
         telegram_failed = 0
@@ -206,6 +266,7 @@ async def _run_once_locked():
             "status": "ok",
             "checked": len(stores),
             "alerts": len(alert_events),
+            "suppressed_alerts": suppressed_alerts,
             "messages": len(telegram_batches),
             "sent": telegram_sent,
             "send_failed": telegram_failed,

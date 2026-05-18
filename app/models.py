@@ -40,6 +40,8 @@ class StoreStatus(Base):
     tunnel_fail_count: Mapped[int] = mapped_column(Integer, default=0)
     wan_success_count: Mapped[int] = mapped_column(Integer, default=0)
     tunnel_success_count: Mapped[int] = mapped_column(Integer, default=0)
+    wan_down_window: Mapped[str] = mapped_column(Text, default="")
+    tunnel_down_window: Mapped[str] = mapped_column(Text, default="")
     last_check_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_changed_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_alert_at: Mapped[datetime | None] = mapped_column(DateTime)

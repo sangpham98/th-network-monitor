@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
-from app.models import Incident, Store
+from app.models import Incident, Store, StoreStatus
 from monitor.status_engine import format_alert_event, format_alert_summary, format_major_incident, update_status_and_incident
 
 
@@ -50,19 +50,15 @@ def test_alert_formatters_accept_worker_events():
 
 
 def test_down_threshold_and_recovery():
-    """First call sets status to WAN_DOWN (not UNKNOWN). Incident only after 2nd call when down_threshold=2."""
     db = make_db()
     store = make_store(db)
 
-    # First call: status should be set to WAN_DOWN immediately (not UNKNOWN)
-    # No incident yet because down_threshold=2 not reached
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True, 2, 2)
     db.commit()
     assert status == "WAN_DOWN"
-    assert changed is True  # status changed from UNKNOWN to WAN_DOWN
-    assert incident_ids == []  # no incident yet, need 2 consecutive failures
+    assert changed is True
+    assert incident_ids == []
 
-    # Second call: now down_threshold=2 reached, incident should be created
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True, 2, 2)
     db.commit()
     assert status == "WAN_DOWN"
@@ -70,12 +66,47 @@ def test_down_threshold_and_recovery():
     assert len(incident_ids) == 1
     assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 1
 
-    # Third call: still down, should not create duplicate incident
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True, 2, 2)
     db.commit()
     assert status == "WAN_DOWN"
     assert recovered is False
     assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 1
+
+
+def test_down_threshold_uses_four_of_five_window():
+    db = make_db()
+    store = make_store(db)
+
+    for wan_ok in [False, False, True, False]:
+        changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, wan_ok, True, 4, 2)
+        db.commit()
+        assert incident_ids == []
+
+    assert store.status.wan_down_window == "1101"
+    assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 0
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True, 4, 2)
+    db.commit()
+
+    assert store.status.wan_down_window == "11011"
+    assert status == "WAN_DOWN"
+    assert len(incident_ids) == 1
+    assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 1
+
+
+def test_stale_fail_window_does_not_alert_when_current_check_succeeds():
+    db = make_db()
+    store = make_store(db)
+    store.status = StoreStatus(store_id=store.id, wan_down_window="1111")
+    db.commit()
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, True, False, 4, 2)
+    db.commit()
+
+    assert store.status.wan_down_window == "11110"
+    assert status == "TUNNEL_DOWN"
+    assert incident_ids == []
+    assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 0
 
 
 def test_up_threshold_requires_two_success_cycles_before_recovery():
@@ -93,7 +124,9 @@ def test_up_threshold_requires_two_success_cycles_before_recovery():
     update_status_and_incident(db, store, False, False, 1, 2)
     db.commit()
     assert store.status.overall_status == "DOWN"
-    assert db.query(Incident).filter(Incident.status == "OPEN").count() == 1
+    incident = db.query(Incident).filter(Incident.status == "OPEN").one()
+    incident.alert_sent = True
+    db.commit()
 
     # First recovery check: still DOWN (need 2 consecutive successes)
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, True, True, 1, 2)
@@ -114,6 +147,26 @@ def test_up_threshold_requires_two_success_cycles_before_recovery():
     assert resolved.duration_seconds is not None
 
 
+def test_recovery_does_not_notify_if_down_alert_was_never_sent():
+    db = make_db()
+    store = make_store(db)
+
+    update_status_and_incident(db, store, False, False, 1, 2)
+    db.commit()
+    assert db.query(Incident).filter(Incident.status == "OPEN").count() == 1
+
+    update_status_and_incident(db, store, True, True, 1, 2)
+    db.commit()
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, True, True, 1, 2)
+    db.commit()
+
+    assert status == "UP"
+    assert recovered is True
+    assert incident_ids == []
+    assert db.query(Incident).filter(Incident.status == "RESOLVED").count() == 1
+
+
+
 def test_recovery_works_when_only_wan_is_configured():
     """Store with only WAN configured recovers after 2 consecutive WAN UP."""
     db = make_db()
@@ -126,6 +179,9 @@ def test_recovery_works_when_only_wan_is_configured():
     update_status_and_incident(db, store, False, None, 1, 2)
     db.commit()
     assert store.status.overall_status == "WAN_DOWN"
+    incident = db.query(Incident).filter(Incident.status == "OPEN").one()
+    incident.alert_sent = True
+    db.commit()
 
     # First recovery check: still WAN_DOWN (need 2 consecutive)
     update_status_and_incident(db, store, True, None, 1, 2)
@@ -152,6 +208,9 @@ def test_recovery_works_when_only_tunnel_is_configured():
     update_status_and_incident(db, store, None, False, 1, 2)
     db.commit()
     assert store.status.overall_status == "TUNNEL_DOWN"
+    incident = db.query(Incident).filter(Incident.status == "OPEN").one()
+    incident.alert_sent = True
+    db.commit()
 
     # First recovery check: still TUNNEL_DOWN
     update_status_and_incident(db, store, None, True, 1, 2)

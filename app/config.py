@@ -12,12 +12,12 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8080
     database_url: str = "sqlite:///./data/network_monitor.db"
-    monitor_interval_seconds: int = 60
-    ping_timeout_seconds: int = 1
-    ping_retry: int = 2
-    down_threshold: int = 3
+    monitor_interval_seconds: int = 30
+    ping_timeout_seconds: int = 2
+    ping_retry: int = 3
+    down_threshold: int = 4
     up_threshold: int = 2
-    max_concurrency: int = 150
+    max_concurrency: int = 100
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     timezone: str = DEFAULT_TIMEZONE
