@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from filelock import Timeout, FileLock
+from sqlalchemy import or_
 
 from alerts.telegram import send_telegram
 from app.config import settings
@@ -81,7 +82,11 @@ def _pending_open_alert_events(db, excluded_incident_ids: set[int]) -> list[dict
     query = (
         db.query(Incident, Store)
         .join(Store, Store.id == Incident.store_id)
-        .filter(Incident.status == "OPEN", Incident.alert_sent.is_(False), Store.enabled.is_(True))
+        .filter(
+            Incident.status == "OPEN",
+            or_(Incident.alert_sent.is_(False), Incident.alert_sent.is_(None)),
+            Store.enabled.is_(True),
+        )
     )
     if excluded_incident_ids:
         query = query.filter(Incident.id.notin_(excluded_incident_ids))

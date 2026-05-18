@@ -105,6 +105,19 @@ def test_pending_open_alert_events_include_old_unsent_incidents():
     assert events[0]["recovered"] is False
 
 
+def test_pending_open_alert_events_include_null_alert_sent_incidents():
+    db = make_db()
+    store = make_store(db)
+    incident = Incident(store_id=store.id, incident_type="DOWN", status="OPEN", started_at=utc_now(), alert_sent=None)
+    db.add(incident)
+    db.commit()
+
+    events = worker._pending_open_alert_events(db, set())
+
+    assert len(events) == 1
+    assert events[0]["incident_ids"] == [incident.id]
+
+
 def test_pending_open_alert_events_exclude_current_cycle_incidents():
     db = make_db()
     store = make_store(db)
