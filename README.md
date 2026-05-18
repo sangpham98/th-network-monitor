@@ -121,6 +121,40 @@ sudo systemctl daemon-reload
 sudo systemctl restart th-network-monitor-web th-network-monitor-worker
 ```
 
+Get Telegram chat ID after setting `TELEGRAM_BOT_TOKEN`:
+
+```bash
+TOKEN=$(sudo grep '^TELEGRAM_BOT_TOKEN=' /etc/th-network-monitor/.env | cut -d= -f2-)
+curl -s "https://api.telegram.org/bot${TOKEN}/getUpdates"
+```
+
+For direct bot messages, open the bot in Telegram, press **Start**, send `test`, then use the `chat.id` value from `getUpdates`. For group alerts, add the bot to the group, send `test` in the group, then use the group `chat.id` value; group IDs usually start with `-100`.
+
+Set the chat ID and restart services:
+
+```bash
+sudo nano /etc/th-network-monitor/.env
+sudo systemctl restart th-network-monitor-web th-network-monitor-worker
+```
+
+Test Telegram sending:
+
+```bash
+sudo -u thnm -H env THNM_ENV_FILE=/etc/th-network-monitor/.env PYTHONPATH=/opt/th-network-monitor /opt/th-network-monitor/.venv/bin/python -c 'import asyncio; from alerts.telegram import send_telegram; print(asyncio.run(send_telegram("THNM telegram test")))'
+```
+
+Uninstall completely:
+
+```bash
+sudo systemctl stop th-network-monitor-worker th-network-monitor-web
+sudo systemctl disable th-network-monitor-worker th-network-monitor-web
+sudo rm -f /etc/systemd/system/th-network-monitor-worker.service /etc/systemd/system/th-network-monitor-web.service /etc/logrotate.d/th-network-monitor /usr/local/bin/thnm
+sudo systemctl daemon-reload
+sudo rm -rf /opt/th-network-monitor /etc/th-network-monitor /var/lib/th-network-monitor /var/log/th-network-monitor
+sudo userdel thnm 2>/dev/null || true
+sudo groupdel thnm 2>/dev/null || true
+```
+
 The installer preserves an existing `/etc/th-network-monitor/.env` and never deletes `/var/lib/th-network-monitor`. Installed services set `THNM_ENV_FILE=/etc/th-network-monitor/.env`; local runs use `.env` unless `THNM_ENV_FILE` is explicitly set.
 
 ## Current capability summary
