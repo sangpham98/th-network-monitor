@@ -55,21 +55,13 @@ logs/             runtime logs (not committed)
 
 ## One-command install
 
-**Step 1: Install prerequisites**
+Run this on the target Linux machine and replace `change-this-strong-password` first:
 
 ```bash
-sudo apt update
-sudo apt install -y git python3 python3-venv python3-dev rsync iputils-ping curl build-essential
+sudo apt update && sudo apt install -y git python3 python3-venv python3-dev rsync iputils-ping curl build-essential && curl -fsSL https://raw.githubusercontent.com/sangpham98/th-network-monitor/main/scripts/bootstrap.sh | sudo ADMIN_PASSWORD='change-this-strong-password' bash -s -- https://github.com/sangpham98/th-network-monitor.git
 ```
 
-**Step 2: Bootstrap install**
-
-```bash
-git clone https://github.com/sangpham98/th-network-monitor.git /tmp/th-network-monitor
-sudo /tmp/th-network-monitor/scripts/install.sh
-```
-
-**Step 3: Verify services**
+Verify services:
 
 ```bash
 thnm status
@@ -77,11 +69,9 @@ thnm status
 
 Both `th-network-monitor-web.service` and `th-network-monitor-worker.service` should show `active (running)`.
 
-**Step 4: Access GUI**
-
-Open `http://<server-ip>:8080` in browser. Default login:
+Access GUI at `http://<server-ip>:8080`. Default login:
 - Username: `admin`
-- Password: check `/etc/th-network-monitor/.env` for auto-generated `ADMIN_PASSWORD`
+- Password: value passed as `ADMIN_PASSWORD` in the install command.
 
 **Troubleshooting Python 3.14+**
 
@@ -121,6 +111,14 @@ thnm edit-config
 thnm restart
 thnm run-once
 thnm backup
+```
+
+Update an existing bootstrap install after changes are pushed to GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sangpham98/th-network-monitor/main/scripts/bootstrap.sh | sudo bash -s -- https://github.com/sangpham98/th-network-monitor.git
+sudo systemctl daemon-reload
+sudo systemctl restart th-network-monitor-web th-network-monitor-worker
 ```
 
 The installer preserves an existing `/etc/th-network-monitor/.env` and never deletes `/var/lib/th-network-monitor`. Installed services set `THNM_ENV_FILE=/etc/th-network-monitor/.env`; local runs use `.env` unless `THNM_ENV_FILE` is explicitly set.

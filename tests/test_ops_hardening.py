@@ -44,6 +44,9 @@ def test_systemd_units_include_hardening_directives():
         assert "EnvironmentFile=/etc/th-network-monitor/.env" in content
         assert "Environment=THNM_ENV_FILE=/etc/th-network-monitor/.env" in content
         assert "NoNewPrivileges=true" in content
+        if service.name == "th-network-monitor-worker.service":
+            assert "AmbientCapabilities=CAP_NET_RAW" in content
+            assert "CapabilityBoundingSet=CAP_NET_RAW" in content
         assert "PrivateTmp=true" in content
         assert "ProtectSystem=full" in content
         assert "ProtectHome=true" in content
