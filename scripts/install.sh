@@ -12,6 +12,7 @@ SERVICE_GROUP="thnm"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WEB_SERVICE="th-network-monitor-web.service"
 WORKER_SERVICE="th-network-monitor-worker.service"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-${1:-}}"
 
 require_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -64,7 +65,7 @@ write_env_if_missing() {
     install -d -m 0750 -o root -g "$SERVICE_GROUP" "$CONFIG_DIR"
     if [[ ! -f "$ENV_FILE" ]]; then
         install -m 0640 -o root -g "$SERVICE_GROUP" "$APP_DIR/.env.example" "$ENV_FILE"
-        admin_password="$(random_secret)"
+        admin_password="${ADMIN_PASSWORD:-$(random_secret)}"
         session_secret="$(random_secret)"
         sed -i \
             -e "s|^DATABASE_URL=.*|DATABASE_URL=sqlite:///$DATA_DIR/network_monitor.db|" \

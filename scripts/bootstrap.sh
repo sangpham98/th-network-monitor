@@ -5,16 +5,18 @@ APP_NAME="th-network-monitor"
 DEFAULT_CHECKOUT_DIR="/tmp/$APP_NAME-bootstrap"
 REPO_URL="${1:-}"
 CHECKOUT_DIR="${2:-$DEFAULT_CHECKOUT_DIR}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-${3:-}}"
 
 usage() {
     cat <<'USAGE'
-Usage: bootstrap.sh <repo-url> [checkout-dir]
+Usage: bootstrap.sh <repo-url> [checkout-dir] [admin-password]
 
 Clone or update a TH Network Monitor repository checkout, then run scripts/install.sh.
+Set ADMIN_PASSWORD or pass [admin-password] to avoid generating a random admin password.
 
 Examples:
-  curl -fsSL https://example.com/bootstrap.sh | sudo bash -s -- https://github.com/OWNER/th-network-monitor.git
-  sudo scripts/bootstrap.sh https://github.com/OWNER/th-network-monitor.git
+  curl -fsSL https://example.com/bootstrap.sh | sudo ADMIN_PASSWORD='change-me' bash -s -- https://github.com/OWNER/th-network-monitor.git
+  sudo scripts/bootstrap.sh https://github.com/OWNER/th-network-monitor.git /tmp/th-network-monitor-bootstrap 'change-me'
 USAGE
 }
 
@@ -64,7 +66,7 @@ main() {
     require_command sudo
 
     checkout_repo
-    exec "$CHECKOUT_DIR/scripts/install.sh"
+    exec "$CHECKOUT_DIR/scripts/install.sh" "$ADMIN_PASSWORD"
 }
 
 main "$@"
