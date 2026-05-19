@@ -65,6 +65,7 @@ Trạng thái mới nhất:
 - `overall_status`: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, `UNKNOWN`
 - `wan_fail_count`, `tunnel_fail_count`
 - `wan_success_count`, `tunnel_success_count`
+- `wan_down_window`, `tunnel_down_window`: 5 check gần nhất, `1` là fail, `0` là success
 - `last_check_at`, `last_changed_at`, `last_alert_at`
 
 ### Incident
@@ -135,11 +136,12 @@ Start monitor cycle
   → load enabled stores
   → async check WAN/DNS + IP Tunnel with max concurrency
   → apply PING_RETRY per target
-  → update status counters
-  → apply DOWN_THRESHOLD / UP_THRESHOLD
+  → update status counters + down windows
+  → apply 4-of-5 DOWN window / UP_THRESHOLD
   → open/update/resolve Incident
   → commit DB state
   → collect old OPEN incidents with alert_sent=false
+  → double-check DOWN alerts before batching
   → send Telegram alerts/recoveries
   → mark sent flags only after Telegram success
   → release lock
@@ -204,6 +206,7 @@ Batch alert:
 - 6-30 alerts: gửi 1 summary theo status/region/area.
 - >30 alerts: gửi 1 major incident summary.
 - Recovery 1-5: gửi chi tiết từng store; recovery >5: gửi 1 recovery summary.
+- Chỉ gửi recovery notification cho incident đã gửi DOWN alert thành công (`alert_sent=true`).
 - Nếu Telegram chưa cấu hình, worker không query retry pending alert để tránh scan lặp vô ích.
 
 ## 10. GUI workflow
@@ -308,8 +311,8 @@ Focused areas covered by tests:
 - Auth/session protection.
 - Store list/detail/delete.
 - Import preview/confirm/cancel and import safety.
-- Status engine threshold/recovery/dedup.
-- Alert batching/dedup.
+- Status engine 4-of-5 threshold/recovery/dedup.
+- Alert batching/dedup and DOWN double-check suppression.
 - Backup/restore.
 - Incident export.
 
