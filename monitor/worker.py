@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 DOWN_STATUSES = {"WAN_DOWN", "TUNNEL_DOWN", "DOWN"}
 
 
+def _chunks(items: list[int], size: int):
+    size = max(1, size)
+    for index in range(0, len(items), size):
+        yield items[index : index + size]
+
+
 async def check_store(store: Store, semaphore: asyncio.Semaphore):
     async with semaphore:
         wan_ok = (
@@ -284,26 +290,38 @@ def build_telegram_batches(events: list[dict]) -> list[dict]:
 async def _run_once_locked():
     db = SessionLocal()
     try:
-        stores = db.query(Store).filter(Store.enabled.is_(True)).all()
-        semaphore = asyncio.Semaphore(settings.max_concurrency)
-        results = await asyncio.gather(*(check_store(store, semaphore) for store in stores))
-
-        store_by_id = {store.id: store for store in stores}
+        store_ids = [
+            store_id
+            for (store_id,) in db.query(Store.id).filter(Store.enabled.is_(True)).order_by(Store.id).all()
+        ]
         alert_events = []
-        for store_id, wan_ok, tunnel_ok in results:
-            store = store_by_id[store_id]
-            changed, status, _old, recovered, incident_ids = update_status_and_incident(
-                db=db,
-                store=store,
-                wan_ok=wan_ok,
-                tunnel_ok=tunnel_ok,
-                down_threshold=settings.down_threshold,
-                up_threshold=settings.up_threshold,
-            )
-            if changed and incident_ids:
-                alert_events.append(_build_alert_event(store, status, recovered, incident_ids))
+        checked = 0
 
-        db.commit()
+        for batch_ids in _chunks(store_ids, settings.max_concurrency):
+            stores = db.query(Store).filter(Store.id.in_(batch_ids), Store.enabled.is_(True)).all()
+            store_by_id = {store.id: store for store in stores}
+            semaphore = asyncio.Semaphore(settings.max_concurrency)
+            results = await asyncio.gather(*(check_store(store, semaphore) for store in stores))
+
+            try:
+                for store_id, wan_ok, tunnel_ok in results:
+                    store = store_by_id[store_id]
+                    changed, status, _old, recovered, incident_ids = update_status_and_incident(
+                        db=db,
+                        store=store,
+                        wan_ok=wan_ok,
+                        tunnel_ok=tunnel_ok,
+                        down_threshold=settings.down_threshold,
+                        up_threshold=settings.up_threshold,
+                    )
+                    if changed and incident_ids:
+                        alert_events.append(_build_alert_event(store, status, recovered, incident_ids))
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+            checked += len(results)
+
         suppressed_alerts = 0
         if settings.telegram_bot_token and settings.telegram_chat_id:
             existing_incident_ids = set(_flatten_incident_ids(alert_events))
@@ -342,7 +360,7 @@ async def _run_once_locked():
 
         return {
             "status": "ok",
-            "checked": len(stores),
+            "checked": checked,
             "alerts": len(alert_events),
             "suppressed_alerts": suppressed_alerts,
             "messages": len(telegram_batches),

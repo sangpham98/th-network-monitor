@@ -31,10 +31,10 @@ Excel inventory
   → monitor.worker hoặc /monitor/run-once
   → cross-process monitor lock
   → WAN/DNS + IP Tunnel check with retry
-  → 4-of-5 DOWN window / UP_THRESHOLD recovery
-  → incident open/update/resolve
+  → 3-of-5 DOWN window / UP_THRESHOLD recovery
+  → incident open/update/resolve + DB commit per MAX_CONCURRENCY batch
   → retry unsent alerts + collect due 6h reminders
-  → double-check DOWN/reminders before Telegram batching
+  → double-check DOWN/reminders before end-of-cycle Telegram batching
   → Dashboard / Stores / Incidents GUI
 ```
 
@@ -165,7 +165,7 @@ Implemented and verified capabilities:
 - One-command systemd install with dedicated `thnm` service user, runtime directories, virtualenv, config preservation, web service, worker service, logrotate, and `thnm` helper command.
 - Auth-protected FastAPI/Jinja2 web GUI for dashboard, stores, store detail, import, incidents, backups, Telegram test, and manual monitor run.
 - Excel import preview/confirm flow with column normalization, duplicate detection, safe optional-field handling, and SQLite backup before large imports.
-- Periodic async monitor worker with cross-process lock, max concurrency, ping retry, 4-of-5 down window, incident open/update/resolve, pre-alert double-check, Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
+- Periodic async monitor worker with cross-process lock, max concurrency, ping retry, 3-of-5 down window, per-batch DB status commits, pre-alert double-check, end-of-cycle Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
 - Dashboard/Stores display GUI status computed at render time from WAN/Tunnel thresholds, plus `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
 - Manual **Check now** runs `/monitor/run-once`; when submitted from the GUI it redirects back to the current page after completion, while direct API calls still receive JSON.
 - SQLite backup/restore UI and Excel incident export.
@@ -275,6 +275,7 @@ Statuses:
 Rules:
 
 - `PING_RETRY` is applied per target.
+- `MAX_CONCURRENCY` controls both parallel store checks and DB status commit batch size; recommended `50` for ~500 stores.
 - Stored `wan_status` and `tunnel_status` keep the latest raw probe result.
 - GUI WAN/Tunnel display is computed at render time: DOWN requires `DOWN_THRESHOLD` failures in the last 5 known checks; UP requires `UP_THRESHOLD` consecutive successes.
 - GUI Overall derives from displayed WAN + Tunnel, so dashboard/cards/filter/table stay consistent.
