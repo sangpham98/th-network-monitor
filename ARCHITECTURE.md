@@ -62,7 +62,7 @@ Trạng thái mới nhất:
 
 - `wan_status`: `UP`, `DOWN`, `UNKNOWN` — latest raw WAN/DNS probe
 - `tunnel_status`: `UP`, `DOWN`, `UNKNOWN` — latest raw tunnel probe
-- `overall_status`: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, `UNKNOWN` — confirmed GUI/filter status
+- `overall_status`: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, `UNKNOWN` — worker-confirmed incident status
 - `wan_fail_count`, `tunnel_fail_count`
 - `wan_success_count`, `tunnel_success_count`
 - `wan_down_window`, `tunnel_down_window`: 5 check gần nhất, `1` là fail, `0` là success
@@ -74,7 +74,8 @@ Lịch sử sự cố:
 
 - `store_id`, `incident_type`, `status`
 - `started_at`, `ended_at`, `duration_seconds`
-- `alert_sent`, `recovery_sent`, `detail`
+- `alert_sent`, `recovery_sent`, `alert_sent_at`
+- `last_reminder_at`, `reminder_count`, `detail`
 
 Rule: mỗi store chỉ có tối đa 1 incident `OPEN`; nếu đã có thì update type/detail, không tạo duplicate.
 
@@ -141,9 +142,10 @@ Start monitor cycle
   → open/update/resolve Incident
   → commit DB state
   → collect old OPEN incidents with alert_sent=false
-  → double-check DOWN alerts before batching
-  → send Telegram alerts/recoveries
-  → mark sent flags only after Telegram success
+  → collect due reminders for OPEN incidents with alert_sent=true
+  → double-check DOWN alerts/reminders before batching
+  → send Telegram alerts/reminders/recoveries
+  → mark sent/reminder flags only after Telegram success
   → release lock
 ```
 
@@ -170,7 +172,7 @@ WAN probe success/fail/unknown    → wan_status UP/DOWN/UNKNOWN
 Tunnel probe success/fail/unknown → tunnel_status UP/DOWN/UNKNOWN
 ```
 
-Confirmed `overall_status` for GUI/filter/incident:
+Worker-confirmed `overall_status` for incident/alert flow:
 
 ```text
 WAN confirmed UP    + Tunnel confirmed UP    → UP
@@ -180,13 +182,21 @@ WAN confirmed DOWN  + Tunnel confirmed DOWN  → DOWN
 Thiếu target / chưa confirmed                  → giữ overall_status trước đó hoặc UNKNOWN
 ```
 
+GUI display status is computed at render time from stored raw target status + counters/windows:
+
+```text
+WAN/Tunnel display DOWN → latest raw status DOWN and down window reaches DOWN_THRESHOLD
+WAN/Tunnel display UP   → latest raw status UP and success_count reaches UP_THRESHOLD
+GUI Overall             → derive from displayed WAN + displayed Tunnel
+```
+
 Nếu store chỉ cấu hình WAN hoặc chỉ cấu hình Tunnel, status được derive theo target đang có sau khi target đó đạt threshold tương ứng.
 
 ### Threshold
 
 - Raw `wan_status`/`tunnel_status` cập nhật theo probe mới nhất.
-- Confirmed `overall_status` chỉ đổi sang DOWN/WAN_DOWN/TUNNEL_DOWN khi target hiện tại vẫn DOWN và số lần fail trong 5 lần check gần nhất đạt `DOWN_THRESHOLD`.
-- Pending raw failures giữ nguyên confirmed `overall_status` cũ trên dashboard/store table.
+- Worker-confirmed `overall_status` chỉ đổi sang DOWN/WAN_DOWN/TUNNEL_DOWN khi target hiện tại vẫn DOWN và số lần fail trong 5 lần check gần nhất đạt `DOWN_THRESHOLD`.
+- GUI keeps the previous displayed state while a target is below DOWN/UP threshold, then derives Overall from displayed WAN/Tunnel.
 - Resolve incident khi các target bắt buộc UP liên tiếp đạt `UP_THRESHOLD`.
 - `UNKNOWN` không được tính là UP để recovery.
 
@@ -202,13 +212,14 @@ Target UNKNOWN: không tính recovery, không đổi down_window
 
 ```text
 Status transition / incident event
-  → build in-memory alert event
+  → build in-memory alert/recovery event
   → commit DB state
   → add old OPEN incidents with alert_sent=false when Telegram is configured
-  → double-check DOWN alerts before batching
+  → add due reminder events for OPEN + alert_sent=true incidents
+  → double-check DOWN alerts/reminders before batching
   → send Telegram
-  → if success: mark alert_sent/recovery_sent + last_alert_at
-  → if fail/suppressed: keep sent flags false, do not rollback incident state
+  → if success: mark alert_sent/recovery_sent/reminder timestamp + last_alert_at
+  → if fail/suppressed: keep sent/reminder flags unchanged, do not rollback incident state
 ```
 
 Batch alert:
@@ -217,8 +228,11 @@ Batch alert:
 - 6-30 alerts: gửi 1 summary theo status/region/area.
 - >30 alerts: gửi 1 major incident summary.
 - Recovery 1-5: gửi chi tiết từng store; recovery >5: gửi 1 recovery summary.
+- Reminder 1-5: gửi chi tiết từng store; reminder >5: gửi 1 unresolved summary.
 - Chỉ gửi recovery notification cho incident đã gửi DOWN alert thành công (`alert_sent=true`).
-- Nếu Telegram chưa cấu hình, worker không query retry pending alert để tránh scan lặp vô ích.
+- Mỗi `TELEGRAM_REMINDER_INTERVAL_SECONDS` giây, worker scan incident `OPEN + alert_sent=true`; default `21600` (6h), `0` disables reminders.
+- Reminder dùng anchor `last_reminder_at` hoặc `alert_sent_at`; nếu gửi fail thì không update timestamp để retry cycle sau.
+- Nếu Telegram chưa cấu hình, worker không query retry pending alert/reminder để tránh scan lặp vô ích.
 
 ## 10. GUI workflow
 
@@ -232,8 +246,8 @@ Tất cả GUI/admin routes được bảo vệ bằng auth khi `AUTH_ENABLED=tr
 
 GUI hiện có:
 
-- Dashboard: tổng store, count theo status, bảng 100 stores đầu.
-- Stores: search/filter, status hiện tại, xóa store khi cần.
+- Dashboard: tổng store, count theo GUI display status, bảng 100 stores đầu.
+- Stores: search/filter theo GUI display status, status hiện tại, xóa store khi cần.
 - Store detail: thông tin store + incidents gần nhất.
 - Incidents: filter và export Excel.
 - Import: preview + confirm/cancel.
@@ -290,6 +304,7 @@ UP_THRESHOLD=2
 MAX_CONCURRENCY=100
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
+TELEGRAM_REMINDER_INTERVAL_SECONDS=21600
 TIMEZONE=Asia/Ho_Chi_Minh
 LOG_LEVEL=INFO
 DATA_DIR=./data
@@ -323,7 +338,7 @@ Focused areas covered by tests:
 - Store list/detail/delete.
 - Import preview/confirm/cancel and import safety.
 - Status engine 4-of-5 threshold, GUI threshold sync, recovery, and dedup.
-- Alert batching/dedup and DOWN double-check suppression.
+- Alert batching/dedup, 6-hour reminders, and DOWN double-check suppression.
 - Backup/restore.
 - Incident export.
 

@@ -61,4 +61,7 @@ class Incident(Base):
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     alert_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     recovery_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    alert_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_reminder_at: Mapped[datetime | None] = mapped_column(DateTime)
+    reminder_count: Mapped[int] = mapped_column(Integer, default=0)
     detail: Mapped[str | None] = mapped_column(Text)

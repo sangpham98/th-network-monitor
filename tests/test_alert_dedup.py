@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -48,7 +48,7 @@ def test_alert_sent_incident_does_not_generate_duplicate_event():
     assert db.query(Incident).filter(Incident.status == "OPEN").count() == 1
 
 
-def test_mark_alert_sent_sets_alert_flag_and_last_alert_at(monkeypatch):
+def test_mark_notification_sent_sets_alert_flag_and_last_alert_at(monkeypatch):
     db = make_db()
     store = make_store(db)
     status = StoreStatus(store_id=store.id)
@@ -58,10 +58,14 @@ def test_mark_alert_sent_sets_alert_flag_and_last_alert_at(monkeypatch):
 
     monkeypatch.setattr(worker, "SessionLocal", lambda: db)
 
-    worker._mark_alert_sent([incident.id], recovered=False)
+    before_send = utc_now()
+    worker._mark_notification_sent([incident.id], kind="alert")
 
     assert incident.alert_sent is True
     assert incident.recovery_sent is False
+    assert incident.alert_sent_at >= before_send
+    assert incident.last_reminder_at is None
+    assert incident.reminder_count == 0
     assert status.last_alert_at == incident.started_at
 
 
@@ -82,11 +86,149 @@ def test_mark_recovery_sent_sets_recovery_flag_and_last_alert_at(monkeypatch):
 
     monkeypatch.setattr(worker, "SessionLocal", lambda: db)
 
-    worker._mark_alert_sent([incident.id], recovered=True)
+    worker._mark_notification_sent([incident.id], kind="recovery")
 
     assert incident.alert_sent is False
     assert incident.recovery_sent is True
+    assert incident.alert_sent_at is None
     assert status.last_alert_at == ended_at
+
+
+def test_mark_reminder_sent_sets_timestamp_and_count(monkeypatch):
+    db = make_db()
+    store = make_store(db)
+    status = StoreStatus(store_id=store.id)
+    incident = Incident(
+        store_id=store.id,
+        incident_type="DOWN",
+        status="OPEN",
+        started_at=utc_now(),
+        alert_sent=True,
+        reminder_count=1,
+    )
+    db.add_all([status, incident])
+    db.commit()
+
+    monkeypatch.setattr(worker, "SessionLocal", lambda: db)
+
+    before_send = utc_now()
+    worker._mark_notification_sent([incident.id], kind="reminder")
+
+    assert incident.alert_sent is True
+    assert incident.last_reminder_at >= before_send
+    assert incident.reminder_count == 2
+    assert incident.recovery_sent is False
+    assert status.last_alert_at == incident.last_reminder_at
+
+
+def test_mark_notification_sent_ignores_empty_ids():
+    worker._mark_notification_sent([], kind="alert")
+
+
+def test_pending_reminder_events_include_due_alerted_open_incidents(monkeypatch):
+    db = make_db()
+    store = make_store(db)
+    now = utc_now()
+    monkeypatch.setattr(worker.settings, "telegram_reminder_interval_seconds", 21600)
+    incident = Incident(
+        store_id=store.id,
+        incident_type="DOWN",
+        status="OPEN",
+        started_at=now - timedelta(hours=7),
+        alert_sent=True,
+        alert_sent_at=now - timedelta(hours=7),
+    )
+    db.add(incident)
+    db.commit()
+
+    events = worker._pending_reminder_events(db, set(), now)
+
+    assert len(events) == 1
+    assert events[0]["kind"] == "reminder"
+    assert events[0]["incident_ids"] == [incident.id]
+    assert events[0]["store_code"] == "CH001"
+
+
+def test_pending_reminder_events_exclude_not_due_and_unsent_or_resolved_incidents(monkeypatch):
+    db = make_db()
+    store = make_store(db)
+    now = utc_now()
+    monkeypatch.setattr(worker.settings, "telegram_reminder_interval_seconds", 21600)
+    db.add_all(
+        [
+            Incident(
+                store_id=store.id,
+                incident_type="DOWN",
+                status="OPEN",
+                started_at=now - timedelta(hours=7),
+                alert_sent=True,
+                alert_sent_at=now - timedelta(hours=1),
+            ),
+            Incident(
+                store_id=store.id,
+                incident_type="DOWN",
+                status="OPEN",
+                started_at=now - timedelta(hours=7),
+                alert_sent=False,
+                alert_sent_at=None,
+            ),
+            Incident(
+                store_id=store.id,
+                incident_type="DOWN",
+                status="RESOLVED",
+                started_at=now - timedelta(hours=7),
+                alert_sent=True,
+                alert_sent_at=now - timedelta(hours=7),
+            ),
+        ]
+    )
+    db.commit()
+
+    events = worker._pending_reminder_events(db, set(), now)
+
+    assert events == []
+
+
+def test_pending_reminder_events_exclude_disabled_stores_and_current_cycle_ids(monkeypatch):
+    db = make_db()
+    store = make_store(db)
+    now = utc_now()
+    monkeypatch.setattr(worker.settings, "telegram_reminder_interval_seconds", 21600)
+    incident = Incident(
+        store_id=store.id,
+        incident_type="DOWN",
+        status="OPEN",
+        started_at=now - timedelta(hours=7),
+        alert_sent=True,
+        alert_sent_at=now - timedelta(hours=7),
+    )
+    db.add(incident)
+    db.commit()
+
+    assert worker._pending_reminder_events(db, {incident.id}, now) == []
+
+    store.enabled = False
+    db.commit()
+    assert worker._pending_reminder_events(db, set(), now) == []
+
+
+def test_pending_reminder_events_disabled_when_interval_zero(monkeypatch):
+    db = make_db()
+    store = make_store(db)
+    now = utc_now()
+    monkeypatch.setattr(worker.settings, "telegram_reminder_interval_seconds", 0)
+    incident = Incident(
+        store_id=store.id,
+        incident_type="DOWN",
+        status="OPEN",
+        started_at=now - timedelta(hours=7),
+        alert_sent=True,
+        alert_sent_at=now - timedelta(hours=7),
+    )
+    db.add(incident)
+    db.commit()
+
+    assert worker._pending_reminder_events(db, set(), now) == []
 
 
 def test_pending_open_alert_events_include_old_unsent_incidents():

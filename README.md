@@ -33,7 +33,8 @@ Excel inventory
   → WAN/DNS + IP Tunnel check with retry
   → 4-of-5 DOWN window / UP_THRESHOLD recovery
   → incident open/update/resolve
-  → double-check DOWN before Telegram batching
+  → retry unsent alerts + collect due 6h reminders
+  → double-check DOWN/reminders before Telegram batching
   → Dashboard / Stores / Incidents GUI
 ```
 
@@ -164,8 +165,8 @@ Implemented and verified capabilities:
 - One-command systemd install with dedicated `thnm` service user, runtime directories, virtualenv, config preservation, web service, worker service, logrotate, and `thnm` helper command.
 - Auth-protected FastAPI/Jinja2 web GUI for dashboard, stores, store detail, import, incidents, backups, Telegram test, and manual monitor run.
 - Excel import preview/confirm flow with column normalization, duplicate detection, safe optional-field handling, and SQLite backup before large imports.
-- Periodic async monitor worker with cross-process lock, max concurrency, ping retry, 4-of-5 down window, incident open/update/resolve, pre-alert double-check, and Telegram alert/recovery batching.
-- Dashboard/Stores display `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
+- Periodic async monitor worker with cross-process lock, max concurrency, ping retry, 4-of-5 down window, incident open/update/resolve, pre-alert double-check, Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
+- Dashboard/Stores display GUI status computed at render time from WAN/Tunnel thresholds, plus `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
 - Manual **Check now** runs `/monitor/run-once`; when submitted from the GUI it redirects back to the current page after completion, while direct API calls still receive JSON.
 - SQLite backup/restore UI and Excel incident export.
 - Pytest coverage for auth, store operations, import safety, status thresholds, worker lock, alert batching, backup/restore, and incident export.
@@ -274,17 +275,21 @@ Statuses:
 Rules:
 
 - `PING_RETRY` is applied per target.
-- `wan_status` and `tunnel_status` show the latest raw probe result.
-- `overall_status` is the confirmed GUI/filter status, not the latest raw probe result.
+- Stored `wan_status` and `tunnel_status` keep the latest raw probe result.
+- GUI WAN/Tunnel display is computed at render time: DOWN requires `DOWN_THRESHOLD` failures in the last 5 known checks; UP requires `UP_THRESHOLD` consecutive successes.
+- GUI Overall derives from displayed WAN + Tunnel, so dashboard/cards/filter/table stay consistent.
+- Stored `overall_status` remains the worker-confirmed incident status used by monitor flow.
 - `DOWN_THRESHOLD` controls how many failures are required in the last 5 known checks; default `4`.
 - A down incident opens/updates only when the target is currently failing and its 5-check window reaches `DOWN_THRESHOLD`.
-- Pending raw failures keep the previous confirmed `overall_status` visible in dashboard/store tables.
-- `UP_THRESHOLD` controls consecutive successful required-target checks before recovery; default `2`.
+- Pending raw failures keep the previous GUI status visible in dashboard/store tables.
+- `UP_THRESHOLD` controls consecutive successful required-target checks before recovery and GUI UP display; default `2`.
 - DOWN alerts are double-checked before Telegram batching; if the recheck is UP, the alert is suppressed and retried next cycle if needed.
 - Recovery notifications are sent only for incidents whose DOWN alert was sent successfully.
 - Each store should have at most one active `OPEN` incident.
 - Telegram sent flags are marked only after Telegram send succeeds.
 - Each worker cycle retries old `OPEN` incidents with `alert_sent=false` when Telegram is configured.
+- Every `TELEGRAM_REMINDER_INTERVAL_SECONDS` seconds, open incidents with `alert_sent=true` are reminded if still unresolved; default `21600` (6h), `0` disables reminders.
+- Reminder timestamps update only after Telegram success, so failed reminder sends retry next cycle.
 
 ## Tests
 

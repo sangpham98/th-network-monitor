@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     max_concurrency: int = 100
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    telegram_reminder_interval_seconds: int = 21600
     timezone: str = DEFAULT_TIMEZONE
     log_level: str = "INFO"
     data_dir: Path = BASE_DIR / "data"

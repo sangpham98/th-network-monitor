@@ -35,6 +35,25 @@ def format_alert_event(event: dict, recovered: bool = False) -> str:
     )
 
 
+def format_reminder_event(event: dict) -> str:
+    return "\n".join(
+        [
+            "<b>TH TRUEMART REMINDER</b>",
+            f"Store: <b>{_display(event.get('store_code'))}</b>",
+            f"PC: {_display(event.get('pc_name'))}",
+            f"Status: <b>{_display(event.get('status'))}</b>",
+            f"WAN DNS: {_display(event.get('wan_dns'))}",
+            f"Tunnel: {_display(event.get('ip_tunnel'))}",
+            f"Miền: {_display(event.get('region'))}",
+            f"Khu vực: {_display(event.get('area'))}",
+            f"Địa chỉ: {_display(event.get('address'))}",
+            f"Incident: {_display(_incident_text(event))}",
+            f"Started: {_display(event.get('started_at'))}",
+            f"Reminder count: {_display(event.get('reminder_count'))}",
+        ]
+    )
+
+
 def _count_by(events: list[dict], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for event in events:
@@ -54,6 +73,16 @@ def _append_counts(lines: list[str], counts: dict[str, int], limit: int | None =
 def format_alert_summary(events: list[dict], recovered: bool = False) -> str:
     title = "TH NETWORK RECOVERY SUMMARY" if recovered else "TH NETWORK ALERT SUMMARY"
     lines = [f"<b>{title}</b>", f"Tổng affected: {len(events)}", "", "Theo status:"]
+    _append_counts(lines, _count_by(events, "status"))
+    lines.extend(["", "Theo miền:"])
+    _append_counts(lines, _count_by(events, "region"))
+    lines.extend(["", "Theo khu vực:"])
+    _append_counts(lines, _count_by(events, "area"))
+    return "\n".join(lines)
+
+
+def format_reminder_summary(events: list[dict]) -> str:
+    lines = ["<b>TH NETWORK REMINDER SUMMARY</b>", f"Tổng unresolved: {len(events)}", "", "Theo status:"]
     _append_counts(lines, _count_by(events, "status"))
     lines.extend(["", "Theo miền:"])
     _append_counts(lines, _count_by(events, "region"))

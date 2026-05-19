@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from app import auth
 from app.config import settings
 from app.database import Base, get_db
-from app.main import app
+from app.main import app, display_overall_status, display_tunnel_status, display_wan_status
 from app.models import Incident, Store, StoreStatus
 
 
@@ -55,7 +55,8 @@ def make_db_override():
             tunnel_status="DOWN",
             overall_status="TUNNEL_DOWN",
             wan_success_count=2,
-            tunnel_fail_count=3,
+            tunnel_fail_count=4,
+            tunnel_down_window="1111",
             last_check_at=utc_now(),
         )
     )
@@ -105,6 +106,78 @@ def test_authenticated_user_can_open_store_detail(monkeypatch):
     assert "2026-05-05 15:30:00" in response.text
 
 
+def test_gui_display_holds_previous_status_until_down_threshold(monkeypatch):
+    monkeypatch.setattr(settings, "down_threshold", 4)
+    monkeypatch.setattr(settings, "up_threshold", 2)
+    store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel="10.0.0.1")
+    store.status = StoreStatus(
+        wan_status="DOWN",
+        tunnel_status="UP",
+        overall_status="UP",
+        wan_down_window="1",
+        tunnel_success_count=2,
+    )
+
+    assert display_wan_status(store) == "UP"
+    assert display_tunnel_status(store) == "UP"
+    assert display_overall_status(store) == "UP"
+
+
+def test_gui_display_changes_to_down_after_threshold(monkeypatch):
+    monkeypatch.setattr(settings, "down_threshold", 4)
+    monkeypatch.setattr(settings, "up_threshold", 2)
+    store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel="10.0.0.1")
+    store.status = StoreStatus(
+        wan_status="DOWN",
+        tunnel_status="UP",
+        overall_status="UP",
+        wan_down_window="11011",
+        tunnel_success_count=2,
+    )
+
+    assert display_wan_status(store) == "DOWN"
+    assert display_tunnel_status(store) == "UP"
+    assert display_overall_status(store) == "WAN_DOWN"
+
+
+def test_gui_display_uses_up_threshold_before_recovery(monkeypatch):
+    monkeypatch.setattr(settings, "down_threshold", 4)
+    monkeypatch.setattr(settings, "up_threshold", 2)
+    store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel="10.0.0.1")
+    store.status = StoreStatus(
+        wan_status="UP",
+        tunnel_status="UP",
+        overall_status="DOWN",
+        wan_success_count=1,
+        tunnel_success_count=2,
+    )
+
+    assert display_wan_status(store) == "DOWN"
+    assert display_tunnel_status(store) == "UP"
+    assert display_overall_status(store) == "WAN_DOWN"
+
+    store.status.wan_success_count = 2
+    assert display_wan_status(store) == "UP"
+    assert display_overall_status(store) == "UP"
+
+
+def test_gui_display_derives_tunnel_down_after_threshold(monkeypatch):
+    monkeypatch.setattr(settings, "down_threshold", 4)
+    monkeypatch.setattr(settings, "up_threshold", 2)
+    store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel="10.0.0.1")
+    store.status = StoreStatus(
+        wan_status="UP",
+        tunnel_status="DOWN",
+        overall_status="UP",
+        wan_success_count=2,
+        tunnel_down_window="1111",
+    )
+
+    assert display_wan_status(store) == "UP"
+    assert display_tunnel_status(store) == "DOWN"
+    assert display_overall_status(store) == "TUNNEL_DOWN"
+
+
 def test_store_detail_missing_store_returns_404(monkeypatch):
     configure_auth(monkeypatch)
     make_db_override()
@@ -129,6 +202,27 @@ def test_store_table_links_to_detail_page(monkeypatch):
     assert response.status_code == 200
     assert f'href="/stores/{store.id}"' in response.text
     assert f'action="/stores/{store.id}/delete"' in response.text
+
+
+def test_dashboard_counts_and_store_filter_use_display_status(monkeypatch):
+    configure_auth(monkeypatch)
+    monkeypatch.setattr(settings, "down_threshold", 4)
+    monkeypatch.setattr(settings, "up_threshold", 2)
+    make_db_override()
+    client = TestClient(app)
+    client.cookies.set("test_session", auth.create_session_token("admin"))
+
+    dashboard_response = client.get("/")
+    tunnel_response = client.get("/stores?status=TUNNEL_DOWN")
+    up_response = client.get("/stores?status=UP")
+
+    clear_overrides()
+    assert dashboard_response.status_code == 200
+    assert '<div class="num status-TUNNEL_DOWN">1</div>' in dashboard_response.text
+    assert tunnel_response.status_code == 200
+    assert "CH001" in tunnel_response.text
+    assert up_response.status_code == 200
+    assert "CH001" not in up_response.text
 
 
 

@@ -10,7 +10,6 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from alerts.telegram import send_telegram
@@ -59,6 +58,87 @@ def local_datetime(value: datetime | None) -> str:
     return value.astimezone(_timezone(settings.timezone)).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _down_window_met(window: str | None) -> bool:
+    if settings.down_threshold <= 0:
+        return True
+    return sum(1 for char in (window or "") if char == "1") >= settings.down_threshold
+
+
+def _previous_target_display(overall_status: str | None, target: str) -> str:
+    if overall_status == "UP":
+        return "UP"
+    if overall_status == "DOWN":
+        return "DOWN"
+    if overall_status == "WAN_DOWN":
+        return "DOWN" if target == "wan" else "UP"
+    if overall_status == "TUNNEL_DOWN":
+        return "UP" if target == "wan" else "DOWN"
+    return "UNKNOWN"
+
+
+def _display_target_status(store: Store, target: str) -> str:
+    status = store.status
+    if status is None:
+        return "UNKNOWN"
+
+    if target == "wan":
+        if not store.wan_dns:
+            return "UNKNOWN"
+        raw_status = status.wan_status
+        success_count = status.wan_success_count or 0
+        down_window = status.wan_down_window
+    else:
+        if not store.ip_tunnel:
+            return "UNKNOWN"
+        raw_status = status.tunnel_status
+        success_count = status.tunnel_success_count or 0
+        down_window = status.tunnel_down_window
+
+    previous = _previous_target_display(status.overall_status, target)
+    if raw_status == "DOWN":
+        return "DOWN" if _down_window_met(down_window) else previous
+    if raw_status == "UP":
+        return "UP" if success_count >= settings.up_threshold else previous
+    return previous
+
+
+def display_wan_status(store: Store) -> str:
+    return _display_target_status(store, "wan")
+
+
+def display_tunnel_status(store: Store) -> str:
+    return _display_target_status(store, "tunnel")
+
+
+def display_overall_status(store: Store) -> str:
+    status = store.status
+    wan_required = bool(store.wan_dns)
+    tunnel_required = bool(store.ip_tunnel)
+    wan_status = display_wan_status(store)
+    tunnel_status = display_tunnel_status(store)
+
+    if wan_required and tunnel_required:
+        if wan_status == "UP" and tunnel_status == "UP":
+            return "UP"
+        if wan_status == "DOWN" and tunnel_status == "UP":
+            return "WAN_DOWN"
+        if wan_status == "UP" and tunnel_status == "DOWN":
+            return "TUNNEL_DOWN"
+        if wan_status == "DOWN" and tunnel_status == "DOWN":
+            return "DOWN"
+    if wan_required and not tunnel_required:
+        if wan_status == "UP":
+            return "UP"
+        if wan_status == "DOWN":
+            return "WAN_DOWN"
+    if tunnel_required and not wan_required:
+        if tunnel_status == "UP":
+            return "UP"
+        if tunnel_status == "DOWN":
+            return "TUNNEL_DOWN"
+    return status.overall_status if status else "UNKNOWN"
+
+
 def _safe_redirect_path(value: str) -> str:
     if value.startswith("/") and not value.startswith("//") and "\r" not in value and "\n" not in value:
         return value
@@ -66,6 +146,9 @@ def _safe_redirect_path(value: str) -> str:
 
 
 templates.env.filters["local_datetime"] = local_datetime
+templates.env.globals["display_wan_status"] = display_wan_status
+templates.env.globals["display_tunnel_status"] = display_tunnel_status
+templates.env.globals["display_overall_status"] = display_overall_status
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -107,12 +190,15 @@ def logout():
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db), current_user: str = Depends(require_auth)):
     total = db.query(Store).count()
-    status_counts = dict(db.query(StoreStatus.overall_status, func.count()).group_by(StoreStatus.overall_status).all())
-    stores = db.query(Store).outerjoin(StoreStatus).order_by(Store.store_code).limit(100).all()
+    all_stores = db.query(Store).outerjoin(StoreStatus).order_by(Store.store_code).all()
+    status_counts: dict[str, int] = {}
+    for store in all_stores:
+        display_status = display_overall_status(store)
+        status_counts[display_status] = status_counts.get(display_status, 0) + 1
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"total": total, "status_counts": status_counts, "stores": stores, "current_user": current_user},
+        {"total": total, "status_counts": status_counts, "stores": all_stores[:100], "current_user": current_user},
     )
 
 
@@ -124,9 +210,10 @@ def stores(request: Request, q: str = "", status: str = "", db: Session = Depend
         query = query.filter(
             Store.store_code.like(like) | Store.pc_name.like(like) | Store.ip_tunnel.like(like) | Store.area.like(like)
         )
+    rows = query.order_by(Store.store_code).all()
     if status:
-        query = query.filter(StoreStatus.overall_status == status)
-    rows = query.order_by(Store.store_code).limit(1000).all()
+        rows = [store for store in rows if display_overall_status(store) == status]
+    rows = rows[:1000]
     return templates.TemplateResponse(request, "stores.html", {"stores": rows, "q": q, "status": status, "current_user": current_user})
 
 
