@@ -130,6 +130,28 @@ def _target_confirmed_down(ok: bool | None, window: str | None, down_threshold: 
     return ok is False and _clean_down_window(window).count("1") >= down_threshold
 
 
+def _confirmed_down_overall(
+    store: Store,
+    wan_confirmed_down: bool,
+    tunnel_confirmed_down: bool,
+) -> str | None:
+    wan_required = bool(store.wan_dns)
+    tunnel_required = bool(store.ip_tunnel)
+
+    if wan_required and tunnel_required:
+        if wan_confirmed_down and tunnel_confirmed_down:
+            return "DOWN"
+        if wan_confirmed_down:
+            return "WAN_DOWN"
+        if tunnel_confirmed_down:
+            return "TUNNEL_DOWN"
+    if wan_required and not tunnel_required and wan_confirmed_down:
+        return "WAN_DOWN"
+    if tunnel_required and not wan_required and tunnel_confirmed_down:
+        return "TUNNEL_DOWN"
+    return None
+
+
 def _set_target_counters(status: StoreStatus, wan_ok: bool | None, tunnel_ok: bool | None):
     status.wan_success_count = status.wan_success_count or 0
     status.wan_fail_count = status.wan_fail_count or 0
@@ -193,41 +215,41 @@ def update_status_and_incident(
 
     new_overall = derive_store_overall(store, wan_ok, tunnel_ok)
     confirmed_up = _confirmed_recovery(store, status, wan_ok, tunnel_ok, up_threshold)
-    effective_overall = "UP" if new_overall == "UP" and confirmed_up else new_overall
-    changed = old_overall != effective_overall
-    if changed and effective_overall != "UP":
-        status.overall_status = effective_overall
-        status.last_changed_at = now
-
     wan_confirmed_down = bool(store.wan_dns) and _target_confirmed_down(wan_ok, status.wan_down_window, down_threshold)
     tunnel_confirmed_down = bool(store.ip_tunnel) and _target_confirmed_down(
         tunnel_ok, status.tunnel_down_window, down_threshold
     )
-    confirmed_down = effective_overall != "UP" and (wan_confirmed_down or tunnel_confirmed_down)
+    confirmed_down_overall = _confirmed_down_overall(store, wan_confirmed_down, tunnel_confirmed_down)
+    changed = False
     recovered = False
     incident_ids: list[int] = []
 
-    if confirmed_down:
+    if confirmed_down_overall is not None:
+        if old_overall != confirmed_down_overall:
+            status.overall_status = confirmed_down_overall
+            status.last_changed_at = now
+            changed = True
+
         open_incident = _get_open_incident(db, store.id)
         if open_incident is None:
             open_incident = Incident(
                 store_id=store.id,
-                incident_type=effective_overall,
+                incident_type=confirmed_down_overall,
                 status="OPEN",
-                detail=f"Changed from {old_overall} to {effective_overall}",
+                detail=f"Changed from {old_overall} to {confirmed_down_overall}",
             )
             db.add(open_incident)
             db.flush()
             changed = True
-        elif open_incident.incident_type != effective_overall or old_overall != effective_overall:
-            open_incident.incident_type = effective_overall
-            open_incident.detail = f"Changed from {old_overall} to {effective_overall}"
+        elif open_incident.incident_type != confirmed_down_overall or old_overall != confirmed_down_overall:
+            open_incident.incident_type = confirmed_down_overall
+            open_incident.detail = f"Changed from {old_overall} to {confirmed_down_overall}"
             changed = True
 
         if changed and not open_incident.alert_sent:
             incident_ids.append(open_incident.id)
 
-    elif confirmed_up and old_overall != "UP":
+    elif new_overall == "UP" and confirmed_up and old_overall != "UP":
         status.overall_status = "UP"
         status.last_changed_at = now
         open_incidents = db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").all()

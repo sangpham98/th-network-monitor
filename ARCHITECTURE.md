@@ -60,9 +60,9 @@ Inventory cửa hàng:
 
 Trạng thái mới nhất:
 
-- `wan_status`: `UP`, `DOWN`, `UNKNOWN`
-- `tunnel_status`: `UP`, `DOWN`, `UNKNOWN`
-- `overall_status`: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, `UNKNOWN`
+- `wan_status`: `UP`, `DOWN`, `UNKNOWN` — latest raw WAN/DNS probe
+- `tunnel_status`: `UP`, `DOWN`, `UNKNOWN` — latest raw tunnel probe
+- `overall_status`: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, `UNKNOWN` — confirmed GUI/filter status
 - `wan_fail_count`, `tunnel_fail_count`
 - `wan_success_count`, `tunnel_success_count`
 - `wan_down_window`, `tunnel_down_window`: 5 check gần nhất, `1` là fail, `0` là success
@@ -136,8 +136,8 @@ Start monitor cycle
   → load enabled stores
   → async check WAN/DNS + IP Tunnel with max concurrency
   → apply PING_RETRY per target
-  → update status counters + down windows
-  → apply 4-of-5 DOWN window / UP_THRESHOLD
+  → update raw target status + counters + down windows
+  → apply 4-of-5 DOWN window before changing confirmed overall status
   → open/update/resolve Incident
   → commit DB state
   → collect old OPEN incidents with alert_sent=false
@@ -163,19 +163,30 @@ Nếu lock busy, cycle/request mới skip an toàn:
 
 ### Derived status
 
+Raw target status:
+
 ```text
-WAN UP    + Tunnel UP    → UP
-WAN DOWN  + Tunnel UP    → WAN_DOWN
-WAN UP    + Tunnel DOWN  → TUNNEL_DOWN
-WAN DOWN  + Tunnel DOWN  → DOWN
-Thiếu target / không check được → UNKNOWN
+WAN probe success/fail/unknown    → wan_status UP/DOWN/UNKNOWN
+Tunnel probe success/fail/unknown → tunnel_status UP/DOWN/UNKNOWN
 ```
 
-Nếu store chỉ cấu hình WAN hoặc chỉ cấu hình Tunnel, status được derive theo target đang có.
+Confirmed `overall_status` for GUI/filter/incident:
+
+```text
+WAN confirmed UP    + Tunnel confirmed UP    → UP
+WAN confirmed DOWN  + Tunnel confirmed UP    → WAN_DOWN
+WAN confirmed UP    + Tunnel confirmed DOWN  → TUNNEL_DOWN
+WAN confirmed DOWN  + Tunnel confirmed DOWN  → DOWN
+Thiếu target / chưa confirmed                  → giữ overall_status trước đó hoặc UNKNOWN
+```
+
+Nếu store chỉ cấu hình WAN hoặc chỉ cấu hình Tunnel, status được derive theo target đang có sau khi target đó đạt threshold tương ứng.
 
 ### Threshold
 
-- Mở/chuyển incident khi target hiện tại vẫn DOWN và số lần fail trong 5 lần check gần nhất đạt `DOWN_THRESHOLD`.
+- Raw `wan_status`/`tunnel_status` cập nhật theo probe mới nhất.
+- Confirmed `overall_status` chỉ đổi sang DOWN/WAN_DOWN/TUNNEL_DOWN khi target hiện tại vẫn DOWN và số lần fail trong 5 lần check gần nhất đạt `DOWN_THRESHOLD`.
+- Pending raw failures giữ nguyên confirmed `overall_status` cũ trên dashboard/store table.
 - Resolve incident khi các target bắt buộc UP liên tiếp đạt `UP_THRESHOLD`.
 - `UNKNOWN` không được tính là UP để recovery.
 
@@ -311,7 +322,7 @@ Focused areas covered by tests:
 - Auth/session protection.
 - Store list/detail/delete.
 - Import preview/confirm/cancel and import safety.
-- Status engine 4-of-5 threshold/recovery/dedup.
+- Status engine 4-of-5 threshold, GUI threshold sync, recovery, and dedup.
 - Alert batching/dedup and DOWN double-check suppression.
 - Backup/restore.
 - Incident export.

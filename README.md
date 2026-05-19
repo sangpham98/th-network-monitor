@@ -274,8 +274,11 @@ Statuses:
 Rules:
 
 - `PING_RETRY` is applied per target.
+- `wan_status` and `tunnel_status` show the latest raw probe result.
+- `overall_status` is the confirmed GUI/filter status, not the latest raw probe result.
 - `DOWN_THRESHOLD` controls how many failures are required in the last 5 known checks; default `4`.
 - A down incident opens/updates only when the target is currently failing and its 5-check window reaches `DOWN_THRESHOLD`.
+- Pending raw failures keep the previous confirmed `overall_status` visible in dashboard/store tables.
 - `UP_THRESHOLD` controls consecutive successful required-target checks before recovery; default `2`.
 - DOWN alerts are double-checked before Telegram batching; if the recheck is UP, the alert is suppressed and retried next cycle if needed.
 - Recovery notifications are sent only for incidents whose DOWN alert was sent successfully.

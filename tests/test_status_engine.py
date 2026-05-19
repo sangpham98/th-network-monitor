@@ -55,8 +55,10 @@ def test_down_threshold_and_recovery():
 
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True, 2, 2)
     db.commit()
-    assert status == "WAN_DOWN"
-    assert changed is True
+    assert status == "UNKNOWN"
+    assert changed is False
+    assert store.status.wan_status == "DOWN"
+    assert store.status.tunnel_status == "UP"
     assert incident_ids == []
 
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True, 2, 2)
@@ -83,6 +85,7 @@ def test_down_threshold_uses_four_of_five_window():
         assert incident_ids == []
 
     assert store.status.wan_down_window == "1101"
+    assert store.status.overall_status == "UNKNOWN"
     assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 0
 
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True, 4, 2)
@@ -104,9 +107,46 @@ def test_stale_fail_window_does_not_alert_when_current_check_succeeds():
     db.commit()
 
     assert store.status.wan_down_window == "11110"
-    assert status == "TUNNEL_DOWN"
+    assert status == "UNKNOWN"
+    assert store.status.wan_status == "UP"
+    assert store.status.tunnel_status == "DOWN"
     assert incident_ids == []
     assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 0
+
+
+def test_confirmed_up_store_stays_up_during_pending_raw_failure():
+    db = make_db()
+    store = make_store(db)
+    store.status = StoreStatus(store_id=store.id, overall_status="UP")
+    db.commit()
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True, 4, 2)
+    db.commit()
+
+    assert status == "UP"
+    assert changed is False
+    assert store.status.wan_status == "DOWN"
+    assert store.status.tunnel_status == "UP"
+    assert incident_ids == []
+    assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 0
+
+
+def test_partial_confirmed_down_does_not_expand_until_other_target_confirms():
+    db = make_db()
+    store = make_store(db)
+    store.status = StoreStatus(store_id=store.id, overall_status="WAN_DOWN", wan_down_window="1111")
+    db.add(Incident(store_id=store.id, incident_type="WAN_DOWN", status="OPEN"))
+    db.commit()
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False, 4, 2)
+    db.commit()
+
+    assert status == "WAN_DOWN"
+    assert changed is False
+    assert store.status.tunnel_status == "DOWN"
+    assert store.status.tunnel_down_window == "1"
+    assert incident_ids == []
+    assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 1
 
 
 def test_up_threshold_requires_two_success_cycles_before_recovery():
