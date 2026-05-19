@@ -33,3 +33,17 @@ async def test_ping_host_returns_false_when_all_retry_fail(monkeypatch):
     monkeypatch.setattr(checker.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     assert await checker.ping_host("10.0.0.1", timeout=1, retry=3) is False
+
+
+@pytest.mark.asyncio
+async def test_check_wan_pings_target_directly(monkeypatch):
+    captured = {}
+
+    async def fake_ping_host(host, timeout, retry):
+        captured["call"] = (host, timeout, retry)
+        return True
+
+    monkeypatch.setattr(checker, "ping_host", fake_ping_host)
+
+    assert await checker.check_wan("wan.example", timeout=2, retry=8) is True
+    assert captured["call"] == ("wan.example", 2, 8)

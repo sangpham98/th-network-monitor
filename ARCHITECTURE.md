@@ -159,7 +159,7 @@ Nếu lock busy, cycle/request mới skip an toàn:
 
 ### Check target
 
-- WAN/DNS: resolve nếu có thể, rồi ping target; nếu resolve fail vẫn thử ping vì target có thể là IP.
+- WAN/DNS: ping trực tiếp giá trị cấu hình, giống tunnel; DNS/IP đều chỉ cần pass/fail theo `ping`.
 - Tunnel: ping `ip_tunnel`.
 - `PING_RETRY` được dùng thật; pass nếu có ít nhất 1 reply.
 
