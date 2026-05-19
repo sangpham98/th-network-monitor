@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/network_monitor.db"
     monitor_interval_seconds: int = 30
     ping_timeout_seconds: int = 2
-    ping_retry: int = 3
-    down_threshold: int = 4
+    ping_retry: int = 8
+    down_threshold: int = 3
     up_threshold: int = 2
     max_concurrency: int = 100
     telegram_bot_token: str = ""

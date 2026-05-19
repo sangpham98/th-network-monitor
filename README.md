@@ -279,7 +279,7 @@ Rules:
 - GUI WAN/Tunnel display is computed at render time: DOWN requires `DOWN_THRESHOLD` failures in the last 5 known checks; UP requires `UP_THRESHOLD` consecutive successes.
 - GUI Overall derives from displayed WAN + Tunnel, so dashboard/cards/filter/table stay consistent.
 - Stored `overall_status` remains the worker-confirmed incident status used by monitor flow.
-- `DOWN_THRESHOLD` controls how many failures are required in the last 5 known checks; default `4`.
+- `DOWN_THRESHOLD` controls how many failures are required in the last 5 known checks; default `3`.
 - A down incident opens/updates only when the target is currently failing and its 5-check window reaches `DOWN_THRESHOLD`.
 - Pending raw failures keep the previous GUI status visible in dashboard/store tables.
 - `UP_THRESHOLD` controls consecutive successful required-target checks before recovery and GUI UP display; default `2`.
@@ -302,6 +302,6 @@ python -m pytest
 ## Ops notes
 
 - SQLite is acceptable for the current scale; production must use WAL + busy timeout.
-- If Telegram is noisy, increase `DOWN_THRESHOLD`, `PING_TIMEOUT_SECONDS`, `PING_RETRY`, or `UP_THRESHOLD`; avoid lowering the 4-of-5 down window unless false positives are acceptable.
+- If Telegram is noisy, increase `DOWN_THRESHOLD`, `PING_TIMEOUT_SECONDS`, `PING_RETRY`, or `UP_THRESHOLD`; avoid lowering the 3-of-5 down window unless false positives are acceptable.
 - For larger future workloads, consider PostgreSQL + Alembic only after approval.
 - Runtime config is explicit: installed services use `/etc/th-network-monitor/.env`; local/dev uses repo `.env`.
