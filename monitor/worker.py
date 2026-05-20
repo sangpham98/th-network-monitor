@@ -313,6 +313,16 @@ async def _run_once_locked():
         db.close()
 
 
+def monitor_is_running() -> bool:
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock = FileLock(str(LOCK_PATH), timeout=0)
+    try:
+        with lock:
+            return False
+    except Timeout:
+        return True
+
+
 async def run_once():
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     lock = FileLock(str(LOCK_PATH), timeout=0)

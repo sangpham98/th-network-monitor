@@ -160,7 +160,7 @@ Nếu lock busy, cycle/request mới skip an toàn:
 
 - WAN/DNS: ping trực tiếp giá trị cấu hình, giống tunnel; DNS/IP đều chỉ cần pass/fail theo `ping`.
 - Tunnel: ping `ip_tunnel`.
-- Mỗi target cấu hình được ping 5 packets; pass nếu có ít nhất 1 reply.
+- Mỗi target cấu hình được ping 5 packets với interval ngắn và deadline theo `PING_TIMEOUT_SECONDS`; pass nếu có ít nhất 1 reply.
 - Store được check tuần tự theo thứ tự WAN/DNS rồi IP Tunnel; không ping song song.
 
 ### Derived status

@@ -21,7 +21,7 @@ from app.logging_config import configure_logging
 from app.models import Incident, Store, StoreStatus
 from app.reports import build_incident_report
 from importers.excel_importer import import_excel, preview_excel
-from monitor.worker import run_once
+from monitor.worker import monitor_is_running, run_once
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = settings.data_dir / "uploads"
@@ -85,6 +85,15 @@ def display_overall_status(store: Store) -> str:
     return store.status.overall_status or "UNKNOWN"
 
 
+def monitor_context(db: Session) -> dict:
+    latest = db.query(StoreStatus.last_check_at).order_by(StoreStatus.last_check_at.desc()).first()
+    return {
+        "monitor_running": monitor_is_running(),
+        "latest_check_at": latest[0] if latest else None,
+        "auto_refresh_seconds": settings.monitor_interval_seconds,
+    }
+
+
 def _safe_redirect_path(value: str) -> str:
     if value.startswith("/") and not value.startswith("//") and "\r" not in value and "\n" not in value:
         return value
@@ -144,7 +153,13 @@ def dashboard(request: Request, db: Session = Depends(get_db), current_user: str
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"total": total, "status_counts": status_counts, "stores": all_stores[:100], "current_user": current_user},
+        {
+            "total": total,
+            "status_counts": status_counts,
+            "stores": all_stores[:100],
+            "current_user": current_user,
+            **monitor_context(db),
+        },
     )
 
 
@@ -160,7 +175,11 @@ def stores(request: Request, q: str = "", status: str = "", db: Session = Depend
     if status:
         rows = [store for store in rows if display_overall_status(store) == status]
     rows = rows[:1000]
-    return templates.TemplateResponse(request, "stores.html", {"stores": rows, "q": q, "status": status, "current_user": current_user})
+    return templates.TemplateResponse(
+        request,
+        "stores.html",
+        {"stores": rows, "q": q, "status": status, "current_user": current_user, **monitor_context(db)},
+    )
 
 
 @app.post("/stores/{store_id}/delete")
@@ -191,7 +210,7 @@ def store_detail(request: Request, store_id: int, db: Session = Depends(get_db),
     return templates.TemplateResponse(
         request,
         "store_detail.html",
-        {"store": store, "incidents": incidents, "current_user": current_user},
+        {"store": store, "incidents": incidents, "current_user": current_user, **monitor_context(db)},
     )
 
 

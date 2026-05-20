@@ -277,7 +277,7 @@ Rules:
 
 - Each monitor round checks stores sequentially by ID.
 - Each store is checked in this order: WAN/DNS first, then IP Tunnel.
-- Each configured target is pinged with 5 packets.
+- Each configured target is pinged with 5 packets using a short inter-packet interval and `PING_TIMEOUT_SECONDS` as the per-target deadline.
 - DB status is updated only after the full round finishes, with one commit for the round.
 - After the round commit, the worker sleeps `MONITOR_INTERVAL_SECONDS` seconds; default `30`.
 - Stored `wan_status` and `tunnel_status` keep the latest probe result.
