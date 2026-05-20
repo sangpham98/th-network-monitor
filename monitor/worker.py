@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -21,6 +22,7 @@ from monitor.status_engine import (
 )
 
 LOCK_PATH = settings.data_dir / "monitor.lock"
+STATUS_PATH = settings.data_dir / "monitor_status.json"
 PING_PACKET_COUNT = 5
 STORE_BATCH_SIZE = 50
 logger = logging.getLogger(__name__)
@@ -35,6 +37,20 @@ def _target_or_none(value: str | None) -> str | None:
 def _chunks(items: list[tuple[int, str | None, str | None]], size: int):
     for index in range(0, len(items), size):
         yield items[index : index + size]
+
+
+def _write_monitor_status(payload: dict):
+    STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = STATUS_PATH.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+    tmp_path.replace(STATUS_PATH)
+
+
+def read_monitor_status() -> dict:
+    try:
+        return json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 async def check_store(store_id: int, wan_dns: str | None, ip_tunnel: str | None):
@@ -282,14 +298,45 @@ async def _run_once_locked():
     finally:
         db.close()
 
+    total_batches = (len(store_targets) + STORE_BATCH_SIZE - 1) // STORE_BATCH_SIZE
+    _write_monitor_status(
+        {
+            "running": True,
+            "batch_current": 0,
+            "batch_total": total_batches,
+            "checked": 0,
+            "total": len(store_targets),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    )
     alert_events = []
     checked = 0
-    for batch in _chunks(store_targets, STORE_BATCH_SIZE):
+    for batch_number, batch in enumerate(_chunks(store_targets, STORE_BATCH_SIZE), start=1):
+        _write_monitor_status(
+            {
+                "running": True,
+                "batch_current": batch_number,
+                "batch_total": total_batches,
+                "checked": checked,
+                "total": len(store_targets),
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
         results = await asyncio.gather(
             *(check_store(store_id, wan_dns, ip_tunnel) for store_id, wan_dns, ip_tunnel in batch)
         )
         checked += len(results)
         alert_events.extend(_apply_batch_results(results))
+        _write_monitor_status(
+            {
+                "running": True,
+                "batch_current": batch_number,
+                "batch_total": total_batches,
+                "checked": checked,
+                "total": len(store_targets),
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
 
     db = SessionLocal()
     try:
@@ -325,7 +372,7 @@ async def _run_once_locked():
                     kind,
                 )
 
-        return {
+        result = {
             "status": "ok",
             "checked": checked,
             "alerts": len(alert_events),
@@ -334,6 +381,17 @@ async def _run_once_locked():
             "send_failed": telegram_failed,
             "mark_failed": mark_failed,
         }
+        _write_monitor_status(
+            {
+                "running": False,
+                "batch_current": total_batches,
+                "batch_total": total_batches,
+                "checked": checked,
+                "total": len(store_targets),
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        return result
     finally:
         db.close()
 

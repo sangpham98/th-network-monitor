@@ -59,7 +59,7 @@ def add_stores(session, count):
 
 
 @pytest.mark.asyncio
-async def test_run_once_pings_store_targets_then_commits_batch(monkeypatch):
+async def test_run_once_pings_store_targets_then_commits_batch(tmp_path, monkeypatch):
     session_factory, session_local, events = make_session_factory()
     setup_db = session_factory()
     add_stores(setup_db, 3)
@@ -76,6 +76,7 @@ async def test_run_once_pings_store_targets_then_commits_batch(monkeypatch):
         return True
 
     monkeypatch.setattr(worker, "SessionLocal", session_local)
+    monkeypatch.setattr(worker, "STATUS_PATH", tmp_path / "monitor_status.json")
     monkeypatch.setattr(worker, "check_wan", check_wan)
     monkeypatch.setattr(worker, "ping_host", ping_host)
     monkeypatch.setattr(worker.settings, "telegram_bot_token", "")
@@ -101,7 +102,7 @@ async def test_run_once_pings_store_targets_then_commits_batch(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_once_skips_placeholder_targets(monkeypatch):
+async def test_run_once_skips_placeholder_targets(tmp_path, monkeypatch):
     session_factory, session_local, events = make_session_factory()
     setup_db = session_factory()
     setup_db.add(Store(store_code="CH001", pc_name="PC001", wan_dns="0", ip_tunnel="-"))
@@ -116,6 +117,7 @@ async def test_run_once_skips_placeholder_targets(monkeypatch):
         raise AssertionError("placeholder tunnel target should not be pinged")
 
     monkeypatch.setattr(worker, "SessionLocal", session_local)
+    monkeypatch.setattr(worker, "STATUS_PATH", tmp_path / "monitor_status.json")
     monkeypatch.setattr(worker, "check_wan", check_wan)
     monkeypatch.setattr(worker, "ping_host", ping_host)
     monkeypatch.setattr(worker.settings, "telegram_bot_token", "")
@@ -134,7 +136,7 @@ async def test_run_once_skips_placeholder_targets(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_once_commits_each_50_store_batch_before_telegram(monkeypatch):
+async def test_run_once_commits_each_50_store_batch_before_telegram(tmp_path, monkeypatch):
     session_factory, session_local, events = make_session_factory()
     setup_db = session_factory()
     add_stores(setup_db, 51)
@@ -159,6 +161,7 @@ async def test_run_once_commits_each_50_store_batch_before_telegram(monkeypatch)
         return False
 
     monkeypatch.setattr(worker, "SessionLocal", session_local)
+    monkeypatch.setattr(worker, "STATUS_PATH", tmp_path / "monitor_status.json")
     monkeypatch.setattr(worker, "check_wan", check_wan)
     monkeypatch.setattr(worker, "ping_host", ping_host)
     monkeypatch.setattr(worker, "send_telegram", send_telegram)
@@ -171,6 +174,9 @@ async def test_run_once_commits_each_50_store_batch_before_telegram(monkeypatch)
     assert events[100] == "commit"
     assert events[103:] == ["commit", "send"]
     assert result["checked"] == 51
+    assert worker.read_monitor_status()["batch_current"] == 2
+    assert worker.read_monitor_status()["batch_total"] == 2
+    assert worker.read_monitor_status()["checked"] == 51
     assert result["alerts"] == 51
     assert result["messages"] == 1
     assert result["send_failed"] == 1

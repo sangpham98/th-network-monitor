@@ -9,7 +9,7 @@ from monitor import worker
 
 
 @pytest.mark.asyncio
-async def test_alert_send_does_not_recheck_targets(monkeypatch):
+async def test_alert_send_does_not_recheck_targets(tmp_path, monkeypatch):
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -37,6 +37,7 @@ async def test_alert_send_does_not_recheck_targets(monkeypatch):
         return False
 
     monkeypatch.setattr(worker, "SessionLocal", session_factory)
+    monkeypatch.setattr(worker, "STATUS_PATH", tmp_path / "monitor_status.json")
     monkeypatch.setattr(worker, "check_wan", check_wan)
     monkeypatch.setattr(worker, "ping_host", ping_host)
     monkeypatch.setattr(worker, "send_telegram", send_telegram)

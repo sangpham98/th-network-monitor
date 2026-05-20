@@ -21,7 +21,7 @@ from app.logging_config import configure_logging
 from app.models import Incident, Store, StoreStatus
 from app.reports import build_incident_report
 from importers.excel_importer import import_excel, preview_excel
-from monitor.worker import monitor_is_running, run_once
+from monitor.worker import monitor_is_running, read_monitor_status, run_once
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = settings.data_dir / "uploads"
@@ -89,6 +89,7 @@ def monitor_context(db: Session) -> dict:
     latest = db.query(StoreStatus.last_check_at).order_by(StoreStatus.last_check_at.desc()).first()
     return {
         "monitor_running": monitor_is_running(),
+        "monitor_status": read_monitor_status(),
         "latest_check_at": latest[0] if latest else None,
         "auto_refresh_seconds": settings.monitor_interval_seconds,
     }
@@ -174,11 +175,19 @@ def stores(request: Request, q: str = "", status: str = "", db: Session = Depend
     rows = query.order_by(Store.store_code).all()
     if status:
         rows = [store for store in rows if display_overall_status(store) == status]
+    filtered_count = len(rows)
     rows = rows[:1000]
     return templates.TemplateResponse(
         request,
         "stores.html",
-        {"stores": rows, "q": q, "status": status, "current_user": current_user, **monitor_context(db)},
+        {
+            "stores": rows,
+            "filtered_count": filtered_count,
+            "q": q,
+            "status": status,
+            "current_user": current_user,
+            **monitor_context(db),
+        },
     )
 
 

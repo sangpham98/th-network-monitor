@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app import auth
+import app.main as main_module
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app, display_overall_status, display_tunnel_status, display_wan_status
@@ -153,6 +154,27 @@ def test_store_table_links_to_detail_page(monkeypatch):
     assert f'action="/stores/{store.id}/delete"' in response.text
 
 
+def test_monitor_banner_shows_batch_progress(monkeypatch):
+    configure_auth(monkeypatch)
+    make_db_override()
+    monkeypatch.setattr(main_module, "monitor_is_running", lambda: True)
+    monkeypatch.setattr(
+        main_module,
+        "read_monitor_status",
+        lambda: {"batch_current": 3, "batch_total": 9, "checked": 150, "total": 425},
+    )
+    client = TestClient(app)
+    client.cookies.set("test_session", auth.create_session_token("admin"))
+
+    response = client.get("/stores")
+
+    clear_overrides()
+    assert response.status_code == 200
+    assert "đang chạy batch 3/9" in response.text
+    assert "checked 150/425 store" in response.text
+
+
+
 def test_dashboard_counts_and_store_filter_use_display_status(monkeypatch):
     configure_auth(monkeypatch)
     make_db_override()
@@ -168,7 +190,10 @@ def test_dashboard_counts_and_store_filter_use_display_status(monkeypatch):
     assert '<div class="num status-TUNNEL_DOWN">1</div>' in dashboard_response.text
     assert tunnel_response.status_code == 200
     assert "CH001" in tunnel_response.text
+    assert "Tổng: 1 store" in tunnel_response.text
+    assert "Overall: TUNNEL_DOWN" in tunnel_response.text
     assert up_response.status_code == 200
+    assert "Tổng: 0 store" in up_response.text
     assert "CH001" not in up_response.text
 
 
