@@ -21,7 +21,7 @@
     <form method="post" action="/logout"><button class="btn">Logout</button></form>
     {% endif %}
   </div>
-  <main class="wrap">{% if monitor_running is defined %}<div class="monitor-bar {% if monitor_running %}running{% endif %}">Monitor: {% if monitor_running %}đang chạy round tuần tự; status sẽ cập nhật sau khi ping hết tất cả cửa hàng và commit DB{% else %}idle{% endif %}. Last check: {{ latest_check_at|local_datetime if latest_check_at else '-' }}</div>{% endif %}{% block content %}{% endblock %}</main>
+  <main class="wrap">{% if monitor_running is defined %}<div class="monitor-bar {% if monitor_running %}running{% endif %}">Monitor: {% if monitor_running %}đang chạy batch 50 store; status cập nhật sau mỗi batch commit DB{% else %}idle{% endif %}. Last check: {{ latest_check_at|local_datetime if latest_check_at else '-' }}</div>{% endif %}{% block content %}{% endblock %}</main>
 </body>
 </html>
 

@@ -22,6 +22,7 @@ from monitor.status_engine import (
 
 LOCK_PATH = settings.data_dir / "monitor.lock"
 PING_PACKET_COUNT = 5
+STORE_BATCH_SIZE = 50
 logger = logging.getLogger(__name__)
 INVALID_TARGETS = {"0", "0.0.0.0", "-", "n/a", "na", "none", "null"}
 
@@ -29,6 +30,11 @@ INVALID_TARGETS = {"0", "0.0.0.0", "-", "n/a", "na", "none", "null"}
 def _target_or_none(value: str | None) -> str | None:
     target = (value or "").strip()
     return None if not target or target.lower() in INVALID_TARGETS else target
+
+
+def _chunks(items: list[tuple[int, str | None, str | None]], size: int):
+    for index in range(0, len(items), size):
+        yield items[index : index + size]
 
 
 async def check_store(store_id: int, wan_dns: str | None, ip_tunnel: str | None):
@@ -234,23 +240,7 @@ def build_telegram_batches(events: list[dict]) -> list[dict]:
     return batches
 
 
-async def _run_once_locked():
-    db = SessionLocal()
-    try:
-        store_targets = [
-            (store_id, wan_dns, ip_tunnel)
-            for store_id, wan_dns, ip_tunnel in db.query(Store.id, Store.wan_dns, Store.ip_tunnel)
-            .filter(Store.enabled.is_(True))
-            .order_by(Store.id)
-            .all()
-        ]
-    finally:
-        db.close()
-
-    results = []
-    for store_id, wan_dns, ip_tunnel in store_targets:
-        results.append(await check_store(store_id, wan_dns, ip_tunnel))
-
+def _apply_batch_results(results: list[tuple[int, bool | None, bool | None]]) -> list[dict]:
     db = SessionLocal()
     try:
         store_ids = [store_id for store_id, _wan_ok, _tunnel_ok in results]
@@ -274,8 +264,35 @@ async def _run_once_locked():
         except Exception:
             db.rollback()
             raise
+        return alert_events
+    finally:
+        db.close()
 
-        checked = len(results)
+
+async def _run_once_locked():
+    db = SessionLocal()
+    try:
+        store_targets = [
+            (store_id, wan_dns, ip_tunnel)
+            for store_id, wan_dns, ip_tunnel in db.query(Store.id, Store.wan_dns, Store.ip_tunnel)
+            .filter(Store.enabled.is_(True))
+            .order_by(Store.id)
+            .all()
+        ]
+    finally:
+        db.close()
+
+    alert_events = []
+    checked = 0
+    for batch in _chunks(store_targets, STORE_BATCH_SIZE):
+        results = await asyncio.gather(
+            *(check_store(store_id, wan_dns, ip_tunnel) for store_id, wan_dns, ip_tunnel in batch)
+        )
+        checked += len(results)
+        alert_events.extend(_apply_batch_results(results))
+
+    db = SessionLocal()
+    try:
         if settings.telegram_bot_token and settings.telegram_chat_id:
             existing_incident_ids = set(_flatten_incident_ids(alert_events))
             alert_events.extend(_pending_open_alert_events(db, existing_incident_ids))

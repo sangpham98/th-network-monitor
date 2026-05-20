@@ -59,7 +59,7 @@ def add_stores(session, count):
 
 
 @pytest.mark.asyncio
-async def test_run_once_pings_stores_sequentially_then_commits_once(monkeypatch):
+async def test_run_once_pings_store_targets_then_commits_batch(monkeypatch):
     session_factory, session_local, events = make_session_factory()
     setup_db = session_factory()
     add_stores(setup_db, 3)
@@ -134,7 +134,7 @@ async def test_run_once_skips_placeholder_targets(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_once_sends_telegram_after_single_status_commit(monkeypatch):
+async def test_run_once_commits_each_50_store_batch_before_telegram(monkeypatch):
     session_factory, session_local, events = make_session_factory()
     setup_db = session_factory()
     add_stores(setup_db, 51)
@@ -144,10 +144,12 @@ async def test_run_once_sends_telegram_after_single_status_commit(monkeypatch):
     ping_calls = []
 
     async def check_wan(target, _timeout, retry):
+        events.append("ping")
         ping_calls.append(("wan", target, retry))
         return False
 
     async def ping_host(target, _timeout, retry):
+        events.append("ping")
         ping_calls.append(("tunnel", target, retry))
         return True
 
@@ -165,7 +167,9 @@ async def test_run_once_sends_telegram_after_single_status_commit(monkeypatch):
 
     result = await worker._run_once_locked()
 
-    assert events == ["commit", "send"]
+    assert events.count("commit") == 2
+    assert events[100] == "commit"
+    assert events[103:] == ["commit", "send"]
     assert result["checked"] == 51
     assert result["alerts"] == 51
     assert result["messages"] == 1

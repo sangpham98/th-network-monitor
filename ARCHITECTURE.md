@@ -135,12 +135,13 @@ Safe import rules:
 Start monitor cycle
   → acquire cross-process file lock data/monitor.lock
   → load enabled stores ordered by Store.id
+  → split stores into batches of 50
+  → within each batch, check up to 50 stores concurrently
   → for each store: ping WAN/DNS with 5 packets, then IP Tunnel with 5 packets
-  → keep ping results in memory until every store in the round is checked
-  → update raw target status + counters + overall status
-  → open/update/resolve Incident immediately from current round result
-  → commit DB state once for the full round
-  → collect old OPEN incidents with alert_sent=false
+  → update raw target status + counters + overall status for the finished batch
+  → open/update/resolve Incident immediately from current batch result
+  → commit DB state after each finished batch
+  → after all batches, collect old OPEN incidents with alert_sent=false
   → collect due reminders for OPEN incidents with alert_sent=true
   → send Telegram alerts/reminders/recoveries
   → mark sent/reminder flags only after Telegram success
@@ -160,8 +161,8 @@ Nếu lock busy, cycle/request mới skip an toàn:
 
 - WAN/DNS: ping trực tiếp giá trị cấu hình, giống tunnel; DNS/IP đều chỉ cần pass/fail theo `ping`.
 - Tunnel: ping `ip_tunnel`.
-- Mỗi target cấu hình được ping đúng 5 packets với `-i 0.2`; worst-case khoảng `(5 - 1) * 0.2 + PING_TIMEOUT_SECONDS` cho mỗi target; pass theo exit code của `ping`.
-- Store được check tuần tự theo thứ tự WAN/DNS rồi IP Tunnel; không ping song song.
+- Mỗi target cấu hình được ping đúng 5 packets với `-i 0.5`; worst-case khoảng `(5 - 1) * 0.5 + PING_TIMEOUT_SECONDS` cho mỗi target; pass theo exit code của `ping`.
+- Store được chia batch 50; các store trong cùng batch chạy song song, nhưng mỗi store vẫn check tuần tự WAN/DNS rồi IP Tunnel.
 
 ### Derived status
 
@@ -319,7 +320,7 @@ Focused areas covered by tests:
 - Store list/detail/delete.
 - Import preview/confirm/cancel and import safety.
 - Immediate status transitions, GUI DB status sync, recovery, and dedup.
-- Sequential worker flow, alert batching/dedup, and 6-hour reminders.
+- Batched worker flow, alert batching/dedup, and 6-hour reminders.
 - Backup/restore.
 - Incident export.
 

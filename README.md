@@ -30,10 +30,10 @@ Excel inventory
   → SQLite stores + status + incidents
   → monitor.worker hoặc /monitor/run-once
   → cross-process monitor lock
-  → sequential per-store check: WAN/DNS 5 packets → IP Tunnel 5 packets
-  → finish the full round
-  → update StoreStatus + open/update/resolve Incident in one DB commit
-  → retry unsent alerts + collect due 6h reminders
+  → batch 50 stores concurrently
+  → per store: WAN/DNS 5 packets → IP Tunnel 5 packets
+  → update StoreStatus + open/update/resolve Incident after each batch commit
+  → retry unsent alerts + collect due 6h reminders after all batches
   → end-of-round Telegram batching
   → next round starts immediately
   → Dashboard / Stores / Incidents GUI
@@ -166,11 +166,11 @@ Implemented and verified capabilities:
 - One-command systemd install with dedicated `thnm` service user, runtime directories, virtualenv, config preservation, web service, worker service, logrotate, and `thnm` helper command.
 - Auth-protected FastAPI/Jinja2 web GUI for dashboard, stores, store detail, import, incidents, backups, Telegram test, and manual monitor run.
 - Excel import preview/confirm flow with column normalization, duplicate detection, safe optional-field handling, and SQLite backup before large imports.
-- Periodic monitor worker with cross-process lock, sequential per-store WAN/DNS then IP Tunnel checks, 5 ping packets per target, one DB status commit after the full round, end-of-round Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
+- Periodic monitor worker with cross-process lock, 50-store batches, per-store WAN/DNS then IP Tunnel checks, 5 ping packets per target, one DB status commit after each batch, end-of-round Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
 - Dashboard/Stores display stored DB status directly, plus `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
 - Manual **Check now** runs `/monitor/run-once`; when submitted from the GUI it redirects back to the current page after completion, while direct API calls still receive JSON.
 - SQLite backup/restore UI and Excel incident export.
-- Pytest coverage for auth, store operations, import safety, immediate status transitions, worker lock, sequential worker flow, alert batching, backup/restore, and incident export.
+- Pytest coverage for auth, store operations, import safety, immediate status transitions, worker lock, batched worker flow, alert batching, backup/restore, and incident export.
 
 ## Local development setup
 
@@ -275,11 +275,12 @@ Statuses:
 
 Rules:
 
-- Each monitor round checks stores sequentially by ID.
+- Each monitor round checks stores ordered by ID in batches of 50.
+- Stores in the same batch run concurrently.
 - Each store is checked in this order: WAN/DNS first, then IP Tunnel.
-- Each configured target is pinged with exactly 5 packets using `-i 0.2`; worst-case duration is roughly `(5 - 1) * 0.2 + PING_TIMEOUT_SECONDS` per target.
-- DB status is updated only after the full round finishes, with one commit for the round.
-- After the round commit and alert attempt, the worker immediately starts the next round.
+- Each configured target is pinged with exactly 5 packets using `-i 0.5`; worst-case duration is roughly `(5 - 1) * 0.5 + PING_TIMEOUT_SECONDS` per target.
+- DB status is updated after each batch finishes, with one commit per batch.
+- After all batch commits and the alert attempt, the worker immediately starts the next round.
 - Stored `wan_status` and `tunnel_status` keep the latest probe result.
 - Stored `overall_status` changes immediately from the current round: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, or `UNKNOWN`.
 - GUI Dashboard/Stores read stored DB status directly.
@@ -303,6 +304,6 @@ python -m pytest
 ## Ops notes
 
 - SQLite is acceptable for the current scale; production must use WAL + busy timeout.
-- Sequential 5-packet checks can make large rounds take longer than 30s; reduce store count or `PING_TIMEOUT_SECONDS` if cycles overrun.
+- 50-store batches keep rounds practical at current scale; reduce store count or `PING_TIMEOUT_SECONDS` if cycles overrun.
 - For larger future workloads, consider PostgreSQL + Alembic only after approval.
 - Runtime config is explicit: installed services use `/etc/th-network-monitor/.env`; local/dev uses repo `.env`.
