@@ -40,12 +40,12 @@ def test_alert_formatters_accept_worker_events():
     summary = format_alert_summary([event])
     major = format_major_incident([event])
 
-    assert "TH TRUEMART ALERT" in alert
-    assert "70000123" in alert
-    assert "42" in alert
-    assert "RECOVERY" in recovery
-    assert "TH NETWORK ALERT SUMMARY" in summary
-    assert "TH NETWORK MAJOR INCIDENT" in major
+    assert "🚨 TH TRUEMART ALERT" in alert
+    assert "🏪 Store: <b>70000123</b>" in alert
+    assert "🆔 Incident: 42" in alert
+    assert "✅ TH TRUEMART RECOVERY" in recovery
+    assert "🚨 TH NETWORK ALERT SUMMARY" in summary
+    assert "🔥 TH NETWORK MAJOR INCIDENT" in major
 
 
 def test_wan_failure_opens_incident_immediately():

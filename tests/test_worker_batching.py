@@ -181,7 +181,7 @@ async def test_run_once_commits_each_50_store_batch_before_telegram(tmp_path, mo
     assert result["messages"] == 1
     assert result["send_failed"] == 1
     assert len(sent_messages) == 1
-    assert "Tổng affected: 51" in sent_messages[0]
+    assert "📌 Tổng affected: <b>51</b>" in sent_messages[0]
     assert len(ping_calls) == 102
     assert all(call[2] == 5 for call in ping_calls)
 

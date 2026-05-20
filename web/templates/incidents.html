@@ -17,6 +17,7 @@
 <table>
   <thead>
     <tr>
+      <th>Incident ID</th>
       <th>Mã CH</th>
       <th>Khu vực</th>
       <th>Loại lỗi</th>
@@ -29,6 +30,7 @@
   <tbody>
     {% for incident, store in rows %}
     <tr>
+      <td>{{ incident.id }}</td>
       <td><a href="/stores/{{ store.id }}">{{ store.store_code }}</a></td>
       <td>{{ store.area or '-' }}</td>
       <td>{{ incident.incident_type }}</td>
@@ -38,7 +40,7 @@
       <td>{{ incident.duration_seconds or '-' }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="7">No incidents.</td></tr>
+    <tr><td colspan="8">No incidents.</td></tr>
     {% endfor %}
   </tbody>
 </table>

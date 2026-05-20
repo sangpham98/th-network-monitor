@@ -166,5 +166,7 @@ def test_incidents_page_has_export_and_store_links(monkeypatch):
     assert response.status_code == 200
     assert "/incidents/export?status=OPEN&amp;store_code=CH001" in response.text
     assert f'href="/stores/{store_1.id}"' in response.text
+    assert "<th>Incident ID</th>" in response.text
+    assert "<td>1</td>" in response.text
     assert "2026-05-05 15:30:00" in response.text
     assert "CH002" not in response.text

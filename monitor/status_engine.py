@@ -18,19 +18,19 @@ def _incident_text(event: dict) -> str:
 
 
 def format_alert_event(event: dict, recovered: bool = False) -> str:
-    title = "TH TRUEMART RECOVERY" if recovered else "TH TRUEMART ALERT"
+    title = "✅ TH TRUEMART RECOVERY" if recovered else "🚨 TH TRUEMART ALERT"
     return "\n".join(
         [
             f"<b>{title}</b>",
-            f"Store: <b>{_display(event.get('store_code'))}</b>",
-            f"PC: {_display(event.get('pc_name'))}",
-            f"Status: <b>{_display(event.get('status'))}</b>",
-            f"WAN DNS: {_display(event.get('wan_dns'))}",
-            f"Tunnel: {_display(event.get('ip_tunnel'))}",
-            f"Miền: {_display(event.get('region'))}",
-            f"Khu vực: {_display(event.get('area'))}",
-            f"Địa chỉ: {_display(event.get('address'))}",
-            f"Incident: {_display(_incident_text(event))}",
+            f"🏪 Store: <b>{_display(event.get('store_code'))}</b>",
+            f"💻 PC: {_display(event.get('pc_name'))}",
+            f"📊 Status: <b>{_display(event.get('status'))}</b>",
+            f"🌐 WAN DNS: {_display(event.get('wan_dns'))}",
+            f"🔗 Tunnel: {_display(event.get('ip_tunnel'))}",
+            f"🌏 Miền: {_display(event.get('region'))}",
+            f"🗺️ Khu vực: {_display(event.get('area'))}",
+            f"📍 Địa chỉ: {_display(event.get('address'))}",
+            f"🆔 Incident: {_display(_incident_text(event))}",
         ]
     )
 
@@ -38,18 +38,18 @@ def format_alert_event(event: dict, recovered: bool = False) -> str:
 def format_reminder_event(event: dict) -> str:
     return "\n".join(
         [
-            "<b>TH TRUEMART REMINDER</b>",
-            f"Store: <b>{_display(event.get('store_code'))}</b>",
-            f"PC: {_display(event.get('pc_name'))}",
-            f"Status: <b>{_display(event.get('status'))}</b>",
-            f"WAN DNS: {_display(event.get('wan_dns'))}",
-            f"Tunnel: {_display(event.get('ip_tunnel'))}",
-            f"Miền: {_display(event.get('region'))}",
-            f"Khu vực: {_display(event.get('area'))}",
-            f"Địa chỉ: {_display(event.get('address'))}",
-            f"Incident: {_display(_incident_text(event))}",
-            f"Started: {_display(event.get('started_at'))}",
-            f"Reminder count: {_display(event.get('reminder_count'))}",
+            "<b>🔔 TH TRUEMART REMINDER</b>",
+            f"🏪 Store: <b>{_display(event.get('store_code'))}</b>",
+            f"💻 PC: {_display(event.get('pc_name'))}",
+            f"📊 Status: <b>{_display(event.get('status'))}</b>",
+            f"🌐 WAN DNS: {_display(event.get('wan_dns'))}",
+            f"🔗 Tunnel: {_display(event.get('ip_tunnel'))}",
+            f"🌏 Miền: {_display(event.get('region'))}",
+            f"🗺️ Khu vực: {_display(event.get('area'))}",
+            f"📍 Địa chỉ: {_display(event.get('address'))}",
+            f"🆔 Incident: {_display(_incident_text(event))}",
+            f"🕒 Started: {_display(event.get('started_at'))}",
+            f"🔁 Reminder count: {_display(event.get('reminder_count'))}",
         ]
     )
 
@@ -67,44 +67,44 @@ def _append_counts(lines: list[str], counts: dict[str, int], limit: int | None =
     if limit is not None:
         items = items[:limit]
     for value, count in items:
-        lines.append(f"- {_display(value)}: {count}")
+        lines.append(f"• {_display(value)}: <b>{count}</b>")
 
 
 def format_alert_summary(events: list[dict], recovered: bool = False) -> str:
-    title = "TH NETWORK RECOVERY SUMMARY" if recovered else "TH NETWORK ALERT SUMMARY"
-    lines = [f"<b>{title}</b>", f"Tổng affected: {len(events)}", "", "Theo status:"]
+    title = "✅ TH NETWORK RECOVERY SUMMARY" if recovered else "🚨 TH NETWORK ALERT SUMMARY"
+    lines = [f"<b>{title}</b>", f"📌 Tổng affected: <b>{len(events)}</b>", "", "📊 Theo status:"]
     _append_counts(lines, _count_by(events, "status"))
-    lines.extend(["", "Theo miền:"])
+    lines.extend(["", "🌏 Theo miền:"])
     _append_counts(lines, _count_by(events, "region"))
-    lines.extend(["", "Theo khu vực:"])
+    lines.extend(["", "🗺️ Theo khu vực:"])
     _append_counts(lines, _count_by(events, "area"))
     return "\n".join(lines)
 
 
 def format_reminder_summary(events: list[dict]) -> str:
-    lines = ["<b>TH NETWORK REMINDER SUMMARY</b>", f"Tổng unresolved: {len(events)}", "", "Theo status:"]
+    lines = ["<b>🔔 TH NETWORK REMINDER SUMMARY</b>", f"📌 Tổng unresolved: <b>{len(events)}</b>", "", "📊 Theo status:"]
     _append_counts(lines, _count_by(events, "status"))
-    lines.extend(["", "Theo miền:"])
+    lines.extend(["", "🌏 Theo miền:"])
     _append_counts(lines, _count_by(events, "region"))
-    lines.extend(["", "Theo khu vực:"])
+    lines.extend(["", "🗺️ Theo khu vực:"])
     _append_counts(lines, _count_by(events, "area"))
     return "\n".join(lines)
 
 
 def format_major_incident(events: list[dict]) -> str:
     lines = [
-        "<b>TH NETWORK MAJOR INCIDENT</b>",
-        f"Tổng affected: {len(events)}",
-        "Gợi ý: kiểm tra hạ tầng WAN/VPN/DNS trung tâm.",
+        "<b>🔥 TH NETWORK MAJOR INCIDENT</b>",
+        f"📌 Tổng affected: <b>{len(events)}</b>",
+        "🛠️ Gợi ý: kiểm tra hạ tầng WAN/VPN/DNS trung tâm.",
         "",
-        "Theo status:",
+        "📊 Theo status:",
     ]
     _append_counts(lines, _count_by(events, "status"))
-    lines.extend(["", "Top khu vực:"])
+    lines.extend(["", "🗺️ Top khu vực:"])
     _append_counts(lines, _count_by(events, "area"), limit=10)
-    lines.extend(["", "Stores: " + ", ".join(_display(event.get("store_code")) for event in events[:30])])
+    lines.extend(["", "🏪 Stores: " + ", ".join(_display(event.get("store_code")) for event in events[:30])])
     if len(events) > 30:
-        lines.append(f"...and {len(events) - 30} more")
+        lines.append(f"…and {len(events) - 30} more")
     return "\n".join(lines)
 
 

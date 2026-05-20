@@ -40,7 +40,7 @@ def test_six_to_thirty_alerts_send_one_summary():
     assert batches[0]["recovered"] is False
     assert batches[0]["incident_ids"] == [1, 2, 3, 4, 5, 6]
     assert "TH NETWORK ALERT SUMMARY" in batches[0]["message"]
-    assert "Tổng affected: 6" in batches[0]["message"]
+    assert "📌 Tổng affected: <b>6</b>" in batches[0]["message"]
 
 
 def test_more_than_thirty_alerts_send_major_incident():
@@ -51,7 +51,7 @@ def test_more_than_thirty_alerts_send_major_incident():
     assert batches[0]["recovered"] is False
     assert batches[0]["incident_ids"] == list(range(1, 32))
     assert "TH NETWORK MAJOR INCIDENT" in batches[0]["message"]
-    assert "Tổng affected: 31" in batches[0]["message"]
+    assert "📌 Tổng affected: <b>31</b>" in batches[0]["message"]
 
 
 def test_one_to_five_recoveries_send_detail_messages():
@@ -91,7 +91,7 @@ def test_more_than_five_reminders_send_one_summary():
     assert batches[0]["recovered"] is False
     assert batches[0]["incident_ids"] == [1, 2, 3, 4, 5, 6]
     assert "TH NETWORK REMINDER SUMMARY" in batches[0]["message"]
-    assert "Tổng unresolved: 6" in batches[0]["message"]
+    assert "📌 Tổng unresolved: <b>6</b>" in batches[0]["message"]
 
 
 def test_mixed_alert_reminder_and_recovery_batches_do_not_bleed_ids():
@@ -112,15 +112,15 @@ def test_summary_groups_by_status_and_region():
 
     message = format_alert_summary(events)
 
-    assert "- DOWN: 2" in message
-    assert "- WAN_DOWN: 1" in message
-    assert "Theo miền:" in message
-    assert "Theo khu vực:" in message
+    assert "• DOWN: <b>2</b>" in message
+    assert "• WAN_DOWN: <b>1</b>" in message
+    assert "🌏 Theo miền:" in message
+    assert "🗺️ Theo khu vực:" in message
     assert "Area A" in message or "Area B" in message
 
 
 def test_major_incident_contains_top_regions_and_guidance():
     message = format_major_incident([make_event(i) for i in range(1, 32)])
 
-    assert "Top khu vực:" in message
-    assert "Gợi ý: kiểm tra hạ tầng WAN/VPN/DNS trung tâm." in message
+    assert "🗺️ Top khu vực:" in message
+    assert "🛠️ Gợi ý: kiểm tra hạ tầng WAN/VPN/DNS trung tâm." in message
