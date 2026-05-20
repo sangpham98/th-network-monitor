@@ -4,7 +4,7 @@ from monitor import checker
 
 
 @pytest.mark.asyncio
-async def test_ping_host_uses_retry(monkeypatch):
+async def test_ping_host_uses_packet_count(monkeypatch):
     captured = {}
 
     class FakeProcess:
@@ -17,8 +17,8 @@ async def test_ping_host_uses_retry(monkeypatch):
 
     monkeypatch.setattr(checker.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    assert await checker.ping_host("10.0.0.1", timeout=2, retry=3) is True
-    assert captured["args"][:6] == ("ping", "-c", "3", "-W", "2", "10.0.0.1")
+    assert await checker.ping_host("10.0.0.1", timeout=2, retry=5) is True
+    assert captured["args"][:6] == ("ping", "-c", "5", "-W", "2", "10.0.0.1")
 
 
 @pytest.mark.asyncio

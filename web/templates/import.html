@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>Import Excel</h1>
-<p class="hint">Cột hỗ trợ: Mã CH, PC Name, IP Local, IP tunel/IP Tunnel, WAN DNS/DNS/Domain, Miền, Khu vực, Địa chỉ.</p>
+<p class="hint">Cột hỗ trợ: Mã CH, PC Name, IP Local, IP tunel/IP Tunnel, WAN DNS/WAN_DNS/DNS_WAN/DNS/Domain, Miền, Khu vực, Địa chỉ.</p>
 {% if request.query_params.get('cancelled') == '1' %}
 <div class="alert">Import preview cancelled. No data was changed.</div>
 {% elif request.query_params %}
@@ -20,4 +20,3 @@
   <button class="btn">Preview Import</button>
 </form>
 {% endblock %}
-

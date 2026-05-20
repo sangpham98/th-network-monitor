@@ -1,8 +1,13 @@
 import sqlite3
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.pool import NullPool
 
 from app import database
+
+
+def test_sqlite_engine_uses_null_pool_for_file_database():
+    assert isinstance(database.engine.pool, NullPool)
 
 
 def test_add_column_if_missing_is_idempotent(tmp_path, monkeypatch):

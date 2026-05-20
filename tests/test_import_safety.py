@@ -58,6 +58,18 @@ def test_blank_cell_does_not_clear_existing_value(tmp_path):
     assert result["skipped_blank_fields"] > 0
 
 
+def test_dns_wan_column_imports_to_wan_dns(tmp_path):
+    db = make_db()
+    path = tmp_path / "dns-wan.xlsx"
+    write_excel(path, [{"Mã CH": "70000123", "DNS_WAN": "dns-001.example.com"}])
+
+    result = import_excel(db, path)
+    store = db.query(Store).filter(Store.store_code == "70000123").one()
+
+    assert result["created"] == 1
+    assert store.wan_dns == "dns-001.example.com"
+
+
 def test_invalid_ip_returns_row_error(tmp_path):
     path = tmp_path / "invalid-ip.xlsx"
     write_excel(path, [{"Mã CH": "70000123", "IP Tunnel": "not-an-ip"}])

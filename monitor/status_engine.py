@@ -155,32 +155,6 @@ def _append_down_window(value: str | None, ok: bool | None) -> str:
     return window[-DOWN_WINDOW_SIZE:]
 
 
-def _target_confirmed_down(ok: bool | None, window: str | None, down_threshold: int) -> bool:
-    return ok is False and _clean_down_window(window).count("1") >= down_threshold
-
-
-def _confirmed_down_overall(
-    store: Store,
-    wan_confirmed_down: bool,
-    tunnel_confirmed_down: bool,
-) -> str | None:
-    wan_required = bool(store.wan_dns)
-    tunnel_required = bool(store.ip_tunnel)
-
-    if wan_required and tunnel_required:
-        if wan_confirmed_down and tunnel_confirmed_down:
-            return "DOWN"
-        if wan_confirmed_down:
-            return "WAN_DOWN"
-        if tunnel_confirmed_down:
-            return "TUNNEL_DOWN"
-    if wan_required and not tunnel_required and wan_confirmed_down:
-        return "WAN_DOWN"
-    if tunnel_required and not wan_required and tunnel_confirmed_down:
-        return "TUNNEL_DOWN"
-    return None
-
-
 def _set_target_counters(status: StoreStatus, wan_ok: bool | None, tunnel_ok: bool | None):
     status.wan_success_count = status.wan_success_count or 0
     status.wan_fail_count = status.wan_fail_count or 0
@@ -208,25 +182,11 @@ def _get_open_incident(db, store_id: int) -> Incident | None:
     return db.query(Incident).filter(Incident.store_id == store_id, Incident.status == "OPEN").order_by(Incident.started_at.desc()).first()
 
 
-def _confirmed_recovery(store: Store, status: StoreStatus, wan_ok: bool | None, tunnel_ok: bool | None, up_threshold: int) -> bool:
-    wan_required = bool(store.wan_dns)
-    tunnel_required = bool(store.ip_tunnel)
-
-    if not wan_required and not tunnel_required:
-        return False
-
-    wan_recovered = not wan_required or (wan_ok is True and status.wan_success_count >= up_threshold)
-    tunnel_recovered = not tunnel_required or (tunnel_ok is True and status.tunnel_success_count >= up_threshold)
-    return wan_recovered and tunnel_recovered
-
-
 def update_status_and_incident(
     db,
     store: Store,
     wan_ok: bool | None,
     tunnel_ok: bool | None,
-    down_threshold: int,
-    up_threshold: int,
 ):
     now = utc_now()
     status = store.status
@@ -243,19 +203,13 @@ def update_status_and_incident(
     _set_target_counters(status, wan_ok, tunnel_ok)
 
     new_overall = derive_store_overall(store, wan_ok, tunnel_ok)
-    confirmed_up = _confirmed_recovery(store, status, wan_ok, tunnel_ok, up_threshold)
-    wan_confirmed_down = bool(store.wan_dns) and _target_confirmed_down(wan_ok, status.wan_down_window, down_threshold)
-    tunnel_confirmed_down = bool(store.ip_tunnel) and _target_confirmed_down(
-        tunnel_ok, status.tunnel_down_window, down_threshold
-    )
-    confirmed_down_overall = _confirmed_down_overall(store, wan_confirmed_down, tunnel_confirmed_down)
     changed = False
     recovered = False
     incident_ids: list[int] = []
 
-    if confirmed_down_overall is not None:
-        if old_overall != confirmed_down_overall:
-            status.overall_status = confirmed_down_overall
+    if new_overall in {"WAN_DOWN", "TUNNEL_DOWN", "DOWN"}:
+        if old_overall != new_overall:
+            status.overall_status = new_overall
             status.last_changed_at = now
             changed = True
 
@@ -263,22 +217,22 @@ def update_status_and_incident(
         if open_incident is None:
             open_incident = Incident(
                 store_id=store.id,
-                incident_type=confirmed_down_overall,
+                incident_type=new_overall,
                 status="OPEN",
-                detail=f"Changed from {old_overall} to {confirmed_down_overall}",
+                detail=f"Changed from {old_overall} to {new_overall}",
             )
             db.add(open_incident)
             db.flush()
             changed = True
-        elif open_incident.incident_type != confirmed_down_overall or old_overall != confirmed_down_overall:
-            open_incident.incident_type = confirmed_down_overall
-            open_incident.detail = f"Changed from {old_overall} to {confirmed_down_overall}"
+        elif open_incident.incident_type != new_overall or old_overall != new_overall:
+            open_incident.incident_type = new_overall
+            open_incident.detail = f"Changed from {old_overall} to {new_overall}"
             changed = True
 
         if changed and not open_incident.alert_sent:
             incident_ids.append(open_incident.id)
 
-    elif new_overall == "UP" and confirmed_up and old_overall != "UP":
+    elif new_overall == "UP" and old_overall != "UP":
         status.overall_status = "UP"
         status.last_changed_at = now
         open_incidents = db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").all()
@@ -290,6 +244,10 @@ def update_status_and_incident(
                 incident_ids.append(incident.id)
         changed = True
         recovered = True
+    elif new_overall == "UNKNOWN" and old_overall != "UNKNOWN":
+        status.overall_status = "UNKNOWN"
+        status.last_changed_at = now
+        changed = True
 
     status.last_check_at = now
     db.add(status)

@@ -59,50 +59,63 @@ def add_stores(session, count):
 
 
 @pytest.mark.asyncio
-async def test_run_once_commits_status_updates_per_configured_batch(monkeypatch):
+async def test_run_once_pings_stores_sequentially_then_commits_once(monkeypatch):
     session_factory, session_local, events = make_session_factory()
     setup_db = session_factory()
-    add_stores(setup_db, 120)
+    add_stores(setup_db, 3)
     setup_db.close()
     events.clear()
+    calls = []
 
-    async def check_wan(_target, _timeout, _retry):
+    async def check_wan(target, timeout, retry):
+        calls.append(("wan", target, timeout, retry))
         return True
 
-    async def ping_host(_target, _timeout, _retry):
+    async def ping_host(target, timeout, retry):
+        calls.append(("tunnel", target, timeout, retry))
         return True
 
     monkeypatch.setattr(worker, "SessionLocal", session_local)
     monkeypatch.setattr(worker, "check_wan", check_wan)
     monkeypatch.setattr(worker, "ping_host", ping_host)
-    monkeypatch.setattr(worker.settings, "max_concurrency", 50)
-    monkeypatch.setattr(worker.settings, "up_threshold", 1)
     monkeypatch.setattr(worker.settings, "telegram_bot_token", "")
     monkeypatch.setattr(worker.settings, "telegram_chat_id", "")
 
     result = await worker._run_once_locked()
 
-    assert result["checked"] == 120
-    assert events == ["commit", "commit", "commit"]
+    assert result["checked"] == 3
+    assert events == ["commit"]
+    assert calls == [
+        ("wan", "wan1.example", worker.settings.ping_timeout_seconds, 5),
+        ("tunnel", "10.0.0.1", worker.settings.ping_timeout_seconds, 5),
+        ("wan", "wan2.example", worker.settings.ping_timeout_seconds, 5),
+        ("tunnel", "10.0.0.2", worker.settings.ping_timeout_seconds, 5),
+        ("wan", "wan3.example", worker.settings.ping_timeout_seconds, 5),
+        ("tunnel", "10.0.0.3", worker.settings.ping_timeout_seconds, 5),
+    ]
 
     db = session_factory()
-    assert db.query(StoreStatus).count() == 120
+    assert db.query(StoreStatus).count() == 3
+    assert {status.overall_status for status in db.query(StoreStatus).all()} == {"UP"}
     db.close()
 
 
 @pytest.mark.asyncio
-async def test_run_once_sends_telegram_after_all_status_batches(monkeypatch):
+async def test_run_once_sends_telegram_after_single_status_commit(monkeypatch):
     session_factory, session_local, events = make_session_factory()
     setup_db = session_factory()
     add_stores(setup_db, 51)
     setup_db.close()
     events.clear()
     sent_messages = []
+    ping_calls = []
 
-    async def check_wan(_target, _timeout, _retry):
+    async def check_wan(target, _timeout, retry):
+        ping_calls.append(("wan", target, retry))
         return False
 
-    async def ping_host(_target, _timeout, _retry):
+    async def ping_host(target, _timeout, retry):
+        ping_calls.append(("tunnel", target, retry))
         return True
 
     async def send_telegram(message):
@@ -114,20 +127,20 @@ async def test_run_once_sends_telegram_after_all_status_batches(monkeypatch):
     monkeypatch.setattr(worker, "check_wan", check_wan)
     monkeypatch.setattr(worker, "ping_host", ping_host)
     monkeypatch.setattr(worker, "send_telegram", send_telegram)
-    monkeypatch.setattr(worker.settings, "max_concurrency", 50)
-    monkeypatch.setattr(worker.settings, "down_threshold", 1)
     monkeypatch.setattr(worker.settings, "telegram_bot_token", "token")
     monkeypatch.setattr(worker.settings, "telegram_chat_id", "chat")
 
     result = await worker._run_once_locked()
 
-    assert events == ["commit", "commit", "send"]
+    assert events == ["commit", "send"]
     assert result["checked"] == 51
     assert result["alerts"] == 51
     assert result["messages"] == 1
     assert result["send_failed"] == 1
     assert len(sent_messages) == 1
     assert "Tổng affected: 51" in sent_messages[0]
+    assert len(ping_calls) == 102
+    assert all(call[2] == 5 for call in ping_calls)
 
     db = session_factory()
     assert db.query(Incident).count() == 51

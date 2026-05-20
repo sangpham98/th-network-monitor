@@ -58,48 +58,17 @@ def local_datetime(value: datetime | None) -> str:
     return value.astimezone(_timezone(settings.timezone)).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _down_window_met(window: str | None) -> bool:
-    if settings.down_threshold <= 0:
-        return True
-    return sum(1 for char in (window or "") if char == "1") >= settings.down_threshold
-
-
-def _previous_target_display(overall_status: str | None, target: str) -> str:
-    if overall_status == "UP":
-        return "UP"
-    if overall_status == "DOWN":
-        return "DOWN"
-    if overall_status == "WAN_DOWN":
-        return "DOWN" if target == "wan" else "UP"
-    if overall_status == "TUNNEL_DOWN":
-        return "UP" if target == "wan" else "DOWN"
-    return "UNKNOWN"
-
-
 def _display_target_status(store: Store, target: str) -> str:
     status = store.status
     if status is None:
         return "UNKNOWN"
-
     if target == "wan":
         if not store.wan_dns:
             return "UNKNOWN"
-        raw_status = status.wan_status
-        success_count = status.wan_success_count or 0
-        down_window = status.wan_down_window
-    else:
-        if not store.ip_tunnel:
-            return "UNKNOWN"
-        raw_status = status.tunnel_status
-        success_count = status.tunnel_success_count or 0
-        down_window = status.tunnel_down_window
-
-    previous = _previous_target_display(status.overall_status, target)
-    if raw_status == "DOWN":
-        return "DOWN" if _down_window_met(down_window) else previous
-    if raw_status == "UP":
-        return "UP" if success_count >= settings.up_threshold else previous
-    return previous
+        return status.wan_status or "UNKNOWN"
+    if not store.ip_tunnel:
+        return "UNKNOWN"
+    return status.tunnel_status or "UNKNOWN"
 
 
 def display_wan_status(store: Store) -> str:
@@ -111,32 +80,9 @@ def display_tunnel_status(store: Store) -> str:
 
 
 def display_overall_status(store: Store) -> str:
-    status = store.status
-    wan_required = bool(store.wan_dns)
-    tunnel_required = bool(store.ip_tunnel)
-    wan_status = display_wan_status(store)
-    tunnel_status = display_tunnel_status(store)
-
-    if wan_required and tunnel_required:
-        if wan_status == "UP" and tunnel_status == "UP":
-            return "UP"
-        if wan_status == "DOWN" and tunnel_status == "UP":
-            return "WAN_DOWN"
-        if wan_status == "UP" and tunnel_status == "DOWN":
-            return "TUNNEL_DOWN"
-        if wan_status == "DOWN" and tunnel_status == "DOWN":
-            return "DOWN"
-    if wan_required and not tunnel_required:
-        if wan_status == "UP":
-            return "UP"
-        if wan_status == "DOWN":
-            return "WAN_DOWN"
-    if tunnel_required and not wan_required:
-        if tunnel_status == "UP":
-            return "UP"
-        if tunnel_status == "DOWN":
-            return "TUNNEL_DOWN"
-    return status.overall_status if status else "UNKNOWN"
+    if store.status is None:
+        return "UNKNOWN"
+    return store.status.overall_status or "UNKNOWN"
 
 
 def _safe_redirect_path(value: str) -> str:

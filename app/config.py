@@ -14,10 +14,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/network_monitor.db"
     monitor_interval_seconds: int = 30
     ping_timeout_seconds: int = 2
-    ping_retry: int = 8
-    down_threshold: int = 3
-    up_threshold: int = 2
-    max_concurrency: int = 100
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     telegram_reminder_interval_seconds: int = 21600
@@ -32,7 +28,7 @@ class Settings(BaseSettings):
     session_cookie_name: str = "thnm_session"
     session_max_age_seconds: int = 28800
 
-    model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
 
 settings = Settings()

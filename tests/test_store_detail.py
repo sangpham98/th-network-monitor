@@ -101,81 +101,30 @@ def test_authenticated_user_can_open_store_detail(monkeypatch):
     assert response.status_code == 200
     assert "Store CH001" in response.text
     assert "TUNNEL_DOWN" in response.text
-    assert "TUNNEL_DOWN" in response.text
     assert "wan.example" in response.text
     assert "2026-05-05 15:30:00" in response.text
 
 
-def test_gui_display_holds_previous_status_until_down_threshold(monkeypatch):
-    monkeypatch.setattr(settings, "down_threshold", 4)
-    monkeypatch.setattr(settings, "up_threshold", 2)
+def test_gui_display_uses_current_db_status_directly():
     store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel="10.0.0.1")
-    store.status = StoreStatus(
-        wan_status="DOWN",
-        tunnel_status="UP",
-        overall_status="UP",
-        wan_down_window="1",
-        tunnel_success_count=2,
-    )
-
-    assert display_wan_status(store) == "UP"
-    assert display_tunnel_status(store) == "UP"
-    assert display_overall_status(store) == "UP"
-
-
-def test_gui_display_changes_to_down_after_threshold(monkeypatch):
-    monkeypatch.setattr(settings, "down_threshold", 4)
-    monkeypatch.setattr(settings, "up_threshold", 2)
-    store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel="10.0.0.1")
-    store.status = StoreStatus(
-        wan_status="DOWN",
-        tunnel_status="UP",
-        overall_status="UP",
-        wan_down_window="11011",
-        tunnel_success_count=2,
-    )
+    store.status = StoreStatus(wan_status="DOWN", tunnel_status="UP", overall_status="WAN_DOWN")
 
     assert display_wan_status(store) == "DOWN"
     assert display_tunnel_status(store) == "UP"
     assert display_overall_status(store) == "WAN_DOWN"
 
 
-def test_gui_display_uses_up_threshold_before_recovery(monkeypatch):
-    monkeypatch.setattr(settings, "down_threshold", 4)
-    monkeypatch.setattr(settings, "up_threshold", 2)
-    store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel="10.0.0.1")
-    store.status = StoreStatus(
-        wan_status="UP",
-        tunnel_status="UP",
-        overall_status="DOWN",
-        wan_success_count=1,
-        tunnel_success_count=2,
-    )
+def test_gui_display_unknown_for_missing_status_or_target():
+    store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel=None)
 
-    assert display_wan_status(store) == "DOWN"
-    assert display_tunnel_status(store) == "UP"
-    assert display_overall_status(store) == "WAN_DOWN"
+    assert display_wan_status(store) == "UNKNOWN"
+    assert display_tunnel_status(store) == "UNKNOWN"
+    assert display_overall_status(store) == "UNKNOWN"
 
-    store.status.wan_success_count = 2
+    store.status = StoreStatus(wan_status="UP", tunnel_status="DOWN", overall_status="UP")
     assert display_wan_status(store) == "UP"
+    assert display_tunnel_status(store) == "UNKNOWN"
     assert display_overall_status(store) == "UP"
-
-
-def test_gui_display_derives_tunnel_down_after_threshold(monkeypatch):
-    monkeypatch.setattr(settings, "down_threshold", 4)
-    monkeypatch.setattr(settings, "up_threshold", 2)
-    store = Store(store_code="CH001", wan_dns="wan.example", ip_tunnel="10.0.0.1")
-    store.status = StoreStatus(
-        wan_status="UP",
-        tunnel_status="DOWN",
-        overall_status="UP",
-        wan_success_count=2,
-        tunnel_down_window="1111",
-    )
-
-    assert display_wan_status(store) == "UP"
-    assert display_tunnel_status(store) == "DOWN"
-    assert display_overall_status(store) == "TUNNEL_DOWN"
 
 
 def test_store_detail_missing_store_returns_404(monkeypatch):
@@ -206,8 +155,6 @@ def test_store_table_links_to_detail_page(monkeypatch):
 
 def test_dashboard_counts_and_store_filter_use_display_status(monkeypatch):
     configure_auth(monkeypatch)
-    monkeypatch.setattr(settings, "down_threshold", 4)
-    monkeypatch.setattr(settings, "up_threshold", 2)
     make_db_override()
     client = TestClient(app)
     client.cookies.set("test_session", auth.create_session_token("admin"))
@@ -225,7 +172,6 @@ def test_dashboard_counts_and_store_filter_use_display_status(monkeypatch):
     assert "CH001" not in up_response.text
 
 
-
 def test_store_delete_redirects_to_login_when_unauthenticated(monkeypatch):
     configure_auth(monkeypatch)
     store = make_db_override()
@@ -236,7 +182,6 @@ def test_store_delete_redirects_to_login_when_unauthenticated(monkeypatch):
     clear_overrides()
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
-
 
 
 def test_authenticated_user_can_delete_store(monkeypatch):

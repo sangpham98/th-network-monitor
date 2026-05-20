@@ -32,7 +32,7 @@ def test_alert_sent_incident_does_not_generate_duplicate_event():
     db = make_db()
     store = make_store(db)
 
-    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False, 1, 2)
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
     db.commit()
     assert changed is True
     assert incident_ids
@@ -41,7 +41,7 @@ def test_alert_sent_incident_does_not_generate_duplicate_event():
     incident.alert_sent = True
     db.commit()
 
-    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False, 1, 2)
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
     db.commit()
 
     assert incident_ids == []

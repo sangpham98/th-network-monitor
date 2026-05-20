@@ -30,11 +30,12 @@ Excel inventory
   → SQLite stores + status + incidents
   → monitor.worker hoặc /monitor/run-once
   → cross-process monitor lock
-  → WAN/DNS + IP Tunnel check with retry
-  → 3-of-5 DOWN window / UP_THRESHOLD recovery
-  → incident open/update/resolve + DB commit per MAX_CONCURRENCY batch
+  → sequential per-store check: WAN/DNS 5 packets → IP Tunnel 5 packets
+  → finish the full round
+  → update StoreStatus + open/update/resolve Incident in one DB commit
   → retry unsent alerts + collect due 6h reminders
-  → double-check DOWN/reminders before end-of-cycle Telegram batching
+  → end-of-round Telegram batching
+  → sleep MONITOR_INTERVAL_SECONDS, default 30s
   → Dashboard / Stores / Incidents GUI
 ```
 
@@ -165,11 +166,11 @@ Implemented and verified capabilities:
 - One-command systemd install with dedicated `thnm` service user, runtime directories, virtualenv, config preservation, web service, worker service, logrotate, and `thnm` helper command.
 - Auth-protected FastAPI/Jinja2 web GUI for dashboard, stores, store detail, import, incidents, backups, Telegram test, and manual monitor run.
 - Excel import preview/confirm flow with column normalization, duplicate detection, safe optional-field handling, and SQLite backup before large imports.
-- Periodic async monitor worker with cross-process lock, max concurrency, ping retry, 3-of-5 down window, per-batch DB status commits, pre-alert double-check, end-of-cycle Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
-- Dashboard/Stores display GUI status computed at render time from WAN/Tunnel thresholds, plus `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
+- Periodic monitor worker with cross-process lock, sequential per-store WAN/DNS then IP Tunnel checks, 5 ping packets per target, one DB status commit after the full round, end-of-round Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
+- Dashboard/Stores display stored DB status directly, plus `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
 - Manual **Check now** runs `/monitor/run-once`; when submitted from the GUI it redirects back to the current page after completion, while direct API calls still receive JSON.
 - SQLite backup/restore UI and Excel incident export.
-- Pytest coverage for auth, store operations, import safety, status thresholds, worker lock, alert batching, backup/restore, and incident export.
+- Pytest coverage for auth, store operations, import safety, immediate status transitions, worker lock, sequential worker flow, alert batching, backup/restore, and incident export.
 
 ## Local development setup
 
@@ -244,7 +245,7 @@ Supported columns:
 - `PC Name`
 - `IP Local`
 - `IP tunel`, `IP Tunnel`
-- `WAN DNS`, `DNS`, `Domain`
+- `WAN DNS`, `WAN_DNS`, `DNS WAN`, `DNS_WAN`, `DNS`, `Domain`
 - `Miền`, `Mien`
 - `Khu vực`, `Khu vuc`
 - `Địa chỉ`, `Dia chi`
@@ -274,17 +275,16 @@ Statuses:
 
 Rules:
 
-- `PING_RETRY` is applied per target.
-- `MAX_CONCURRENCY` controls both parallel store checks and DB status commit batch size; recommended `50` for ~500 stores.
-- Stored `wan_status` and `tunnel_status` keep the latest raw probe result.
-- GUI WAN/Tunnel display is computed at render time: DOWN requires `DOWN_THRESHOLD` failures in the last 5 known checks; UP requires `UP_THRESHOLD` consecutive successes.
-- GUI Overall derives from displayed WAN + Tunnel, so dashboard/cards/filter/table stay consistent.
-- Stored `overall_status` remains the worker-confirmed incident status used by monitor flow.
-- `DOWN_THRESHOLD` controls how many failures are required in the last 5 known checks; default `3`.
-- A down incident opens/updates only when the target is currently failing and its 5-check window reaches `DOWN_THRESHOLD`.
-- Pending raw failures keep the previous GUI status visible in dashboard/store tables.
-- `UP_THRESHOLD` controls consecutive successful required-target checks before recovery and GUI UP display; default `2`.
-- DOWN alerts are double-checked before Telegram batching; if the recheck is UP, the alert is suppressed and retried next cycle if needed.
+- Each monitor round checks stores sequentially by ID.
+- Each store is checked in this order: WAN/DNS first, then IP Tunnel.
+- Each configured target is pinged with 5 packets.
+- DB status is updated only after the full round finishes, with one commit for the round.
+- After the round commit, the worker sleeps `MONITOR_INTERVAL_SECONDS` seconds; default `30`.
+- Stored `wan_status` and `tunnel_status` keep the latest probe result.
+- Stored `overall_status` changes immediately from the current round: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, or `UNKNOWN`.
+- GUI Dashboard/Stores read stored DB status directly.
+- A down incident opens/updates immediately when the current round shows a down status.
+- Recovery resolves open incidents immediately when the current round shows `UP`.
 - Recovery notifications are sent only for incidents whose DOWN alert was sent successfully.
 - Each store should have at most one active `OPEN` incident.
 - Telegram sent flags are marked only after Telegram send succeeds.
@@ -303,6 +303,6 @@ python -m pytest
 ## Ops notes
 
 - SQLite is acceptable for the current scale; production must use WAL + busy timeout.
-- If Telegram is noisy, increase `DOWN_THRESHOLD`, `PING_TIMEOUT_SECONDS`, `PING_RETRY`, or `UP_THRESHOLD`; avoid lowering the 3-of-5 down window unless false positives are acceptable.
+- Sequential 5-packet checks can make large rounds take longer than 30s; reduce store count or `PING_TIMEOUT_SECONDS` if cycles overrun.
 - For larger future workloads, consider PostgreSQL + Alembic only after approval.
 - Runtime config is explicit: installed services use `/etc/th-network-monitor/.env`; local/dev uses repo `.env`.

@@ -21,29 +21,22 @@ from monitor.status_engine import (
 )
 
 LOCK_PATH = settings.data_dir / "monitor.lock"
+PING_PACKET_COUNT = 5
 logger = logging.getLogger(__name__)
-DOWN_STATUSES = {"WAN_DOWN", "TUNNEL_DOWN", "DOWN"}
 
 
-def _chunks(items: list[int], size: int):
-    size = max(1, size)
-    for index in range(0, len(items), size):
-        yield items[index : index + size]
-
-
-async def check_store(store: Store, semaphore: asyncio.Semaphore):
-    async with semaphore:
-        wan_ok = (
-            await check_wan(store.wan_dns, settings.ping_timeout_seconds, settings.ping_retry)
-            if store.wan_dns
-            else None
-        )
-        tunnel_ok = (
-            await ping_host(store.ip_tunnel, settings.ping_timeout_seconds, settings.ping_retry)
-            if store.ip_tunnel
-            else None
-        )
-        return store.id, wan_ok, tunnel_ok
+async def check_store(store_id: int, wan_dns: str | None, ip_tunnel: str | None):
+    wan_ok = (
+        await check_wan(wan_dns, settings.ping_timeout_seconds, PING_PACKET_COUNT)
+        if wan_dns
+        else None
+    )
+    tunnel_ok = (
+        await ping_host(ip_tunnel, settings.ping_timeout_seconds, PING_PACKET_COUNT)
+        if ip_tunnel
+        else None
+    )
+    return store_id, wan_ok, tunnel_ok
 
 
 def _mark_notification_sent(incident_ids: list[int], kind: str):
@@ -100,60 +93,6 @@ def _build_alert_event(
         event["started_at"] = incident.started_at
         event["reminder_count"] = incident.reminder_count or 0
     return event
-
-
-def _derive_event_overall(event: dict, wan_ok: bool | None, tunnel_ok: bool | None) -> str:
-    wan_required = bool(event.get("wan_dns"))
-    tunnel_required = bool(event.get("ip_tunnel"))
-
-    if wan_required and tunnel_required:
-        if wan_ok is True and tunnel_ok is True:
-            return "UP"
-        if wan_ok is False and tunnel_ok is True:
-            return "WAN_DOWN"
-        if wan_ok is True and tunnel_ok is False:
-            return "TUNNEL_DOWN"
-        if wan_ok is False and tunnel_ok is False:
-            return "DOWN"
-    if wan_required and not tunnel_required:
-        if wan_ok is True:
-            return "UP"
-        if wan_ok is False:
-            return "WAN_DOWN"
-    if tunnel_required and not wan_required:
-        if tunnel_ok is True:
-            return "UP"
-        if tunnel_ok is False:
-            return "TUNNEL_DOWN"
-    return "UNKNOWN"
-
-
-async def _double_check_down_alert_event(event: dict, semaphore: asyncio.Semaphore) -> dict | None:
-    if event["recovered"]:
-        return event
-
-    async with semaphore:
-        wan_ok = (
-            await check_wan(event.get("wan_dns"), settings.ping_timeout_seconds, settings.ping_retry)
-            if event.get("wan_dns")
-            else None
-        )
-        tunnel_ok = (
-            await ping_host(event.get("ip_tunnel"), settings.ping_timeout_seconds, settings.ping_retry)
-            if event.get("ip_tunnel")
-            else None
-        )
-
-    status = _derive_event_overall(event, wan_ok, tunnel_ok)
-    if status not in DOWN_STATUSES:
-        return None
-    return {**event, "status": status}
-
-
-async def _double_check_down_alert_events(events: list[dict]) -> list[dict]:
-    semaphore = asyncio.Semaphore(settings.max_concurrency)
-    checked = await asyncio.gather(*(_double_check_down_alert_event(event, semaphore) for event in events))
-    return [event for event in checked if event is not None]
 
 
 def _flatten_incident_ids(events: list[dict]) -> list[int]:
@@ -290,47 +229,50 @@ def build_telegram_batches(events: list[dict]) -> list[dict]:
 async def _run_once_locked():
     db = SessionLocal()
     try:
-        store_ids = [
-            store_id
-            for (store_id,) in db.query(Store.id).filter(Store.enabled.is_(True)).order_by(Store.id).all()
+        store_targets = [
+            (store_id, wan_dns, ip_tunnel)
+            for store_id, wan_dns, ip_tunnel in db.query(Store.id, Store.wan_dns, Store.ip_tunnel)
+            .filter(Store.enabled.is_(True))
+            .order_by(Store.id)
+            .all()
         ]
+    finally:
+        db.close()
+
+    results = []
+    for store_id, wan_dns, ip_tunnel in store_targets:
+        results.append(await check_store(store_id, wan_dns, ip_tunnel))
+
+    db = SessionLocal()
+    try:
+        store_ids = [store_id for store_id, _wan_ok, _tunnel_ok in results]
+        stores = db.query(Store).filter(Store.id.in_(store_ids), Store.enabled.is_(True)).all() if store_ids else []
+        store_by_id = {store.id: store for store in stores}
         alert_events = []
-        checked = 0
+        try:
+            for store_id, wan_ok, tunnel_ok in results:
+                store = store_by_id.get(store_id)
+                if store is None:
+                    continue
+                changed, status, _old, recovered, incident_ids = update_status_and_incident(
+                    db=db,
+                    store=store,
+                    wan_ok=wan_ok,
+                    tunnel_ok=tunnel_ok,
+                )
+                if changed and incident_ids:
+                    alert_events.append(_build_alert_event(store, status, recovered, incident_ids))
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
-        for batch_ids in _chunks(store_ids, settings.max_concurrency):
-            stores = db.query(Store).filter(Store.id.in_(batch_ids), Store.enabled.is_(True)).all()
-            store_by_id = {store.id: store for store in stores}
-            semaphore = asyncio.Semaphore(settings.max_concurrency)
-            results = await asyncio.gather(*(check_store(store, semaphore) for store in stores))
-
-            try:
-                for store_id, wan_ok, tunnel_ok in results:
-                    store = store_by_id[store_id]
-                    changed, status, _old, recovered, incident_ids = update_status_and_incident(
-                        db=db,
-                        store=store,
-                        wan_ok=wan_ok,
-                        tunnel_ok=tunnel_ok,
-                        down_threshold=settings.down_threshold,
-                        up_threshold=settings.up_threshold,
-                    )
-                    if changed and incident_ids:
-                        alert_events.append(_build_alert_event(store, status, recovered, incident_ids))
-                db.commit()
-            except Exception:
-                db.rollback()
-                raise
-            checked += len(results)
-
-        suppressed_alerts = 0
+        checked = len(results)
         if settings.telegram_bot_token and settings.telegram_chat_id:
             existing_incident_ids = set(_flatten_incident_ids(alert_events))
             alert_events.extend(_pending_open_alert_events(db, existing_incident_ids))
             existing_incident_ids = set(_flatten_incident_ids(alert_events))
             alert_events.extend(_pending_reminder_events(db, existing_incident_ids, datetime.now(UTC).replace(tzinfo=None)))
-            alert_count_before_double_check = len(alert_events)
-            alert_events = await _double_check_down_alert_events(alert_events)
-            suppressed_alerts = alert_count_before_double_check - len(alert_events)
         telegram_batches = build_telegram_batches(alert_events)
         telegram_sent = 0
         telegram_failed = 0
@@ -362,7 +304,6 @@ async def _run_once_locked():
             "status": "ok",
             "checked": checked,
             "alerts": len(alert_events),
-            "suppressed_alerts": suppressed_alerts,
             "messages": len(telegram_batches),
             "sent": telegram_sent,
             "send_failed": telegram_failed,

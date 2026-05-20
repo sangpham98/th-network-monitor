@@ -115,7 +115,7 @@ Cột hỗ trợ:
 - `PC Name` → `pc_name`
 - `IP Local` → `ip_local`
 - `IP tunel`, `IP Tunnel` → `ip_tunnel`
-- `WAN DNS`, `DNS`, `Domain` → `wan_dns`
+- `WAN DNS`, `WAN_DNS`, `DNS WAN`, `DNS_WAN`, `DNS`, `Domain` → `wan_dns`
 - `Miền`, `Mien` → `region`
 - `Khu vực`, `Khu vuc` → `area`
 - `Địa chỉ`, `Dia chi` → `address`
@@ -134,19 +134,18 @@ Safe import rules:
 ```text
 Start monitor cycle
   → acquire cross-process file lock data/monitor.lock
-  → load enabled stores
-  → async check WAN/DNS + IP Tunnel with max concurrency
-  → apply PING_RETRY per target
-  → update raw target status + counters + down windows
-  → apply 4-of-5 DOWN window before changing confirmed overall status
-  → open/update/resolve Incident
-  → commit DB state
+  → load enabled stores ordered by Store.id
+  → for each store: ping WAN/DNS with 5 packets, then IP Tunnel with 5 packets
+  → keep ping results in memory until every store in the round is checked
+  → update raw target status + counters + overall status
+  → open/update/resolve Incident immediately from current round result
+  → commit DB state once for the full round
   → collect old OPEN incidents with alert_sent=false
   → collect due reminders for OPEN incidents with alert_sent=true
-  → double-check DOWN alerts/reminders before batching
   → send Telegram alerts/reminders/recoveries
   → mark sent/reminder flags only after Telegram success
   → release lock
+  → sleep MONITOR_INTERVAL_SECONDS, default 30s
 ```
 
 Nếu lock busy, cycle/request mới skip an toàn:
@@ -161,7 +160,8 @@ Nếu lock busy, cycle/request mới skip an toàn:
 
 - WAN/DNS: ping trực tiếp giá trị cấu hình, giống tunnel; DNS/IP đều chỉ cần pass/fail theo `ping`.
 - Tunnel: ping `ip_tunnel`.
-- `PING_RETRY` được dùng thật; pass nếu có ít nhất 1 reply.
+- Mỗi target cấu hình được ping 5 packets; pass nếu có ít nhất 1 reply.
+- Store được check tuần tự theo thứ tự WAN/DNS rồi IP Tunnel; không ping song song.
 
 ### Derived status
 
@@ -172,41 +172,27 @@ WAN probe success/fail/unknown    → wan_status UP/DOWN/UNKNOWN
 Tunnel probe success/fail/unknown → tunnel_status UP/DOWN/UNKNOWN
 ```
 
-Worker-confirmed `overall_status` for incident/alert flow:
+`overall_status` for GUI/incident/alert flow updates immediately from the current round:
 
 ```text
-WAN confirmed UP    + Tunnel confirmed UP    → UP
-WAN confirmed DOWN  + Tunnel confirmed UP    → WAN_DOWN
-WAN confirmed UP    + Tunnel confirmed DOWN  → TUNNEL_DOWN
-WAN confirmed DOWN  + Tunnel confirmed DOWN  → DOWN
-Thiếu target / chưa confirmed                  → giữ overall_status trước đó hoặc UNKNOWN
+WAN UP    + Tunnel UP    → UP
+WAN DOWN  + Tunnel UP    → WAN_DOWN
+WAN UP    + Tunnel DOWN  → TUNNEL_DOWN
+WAN DOWN  + Tunnel DOWN  → DOWN
+Thiếu target / chưa kết quả    → UNKNOWN
 ```
 
-GUI display status is computed at render time from stored raw target status + counters/windows:
-
-```text
-WAN/Tunnel display DOWN → latest raw status DOWN and down window reaches DOWN_THRESHOLD
-WAN/Tunnel display UP   → latest raw status UP and success_count reaches UP_THRESHOLD
-GUI Overall             → derive from displayed WAN + displayed Tunnel
-```
-
-Nếu store chỉ cấu hình WAN hoặc chỉ cấu hình Tunnel, status được derive theo target đang có sau khi target đó đạt threshold tương ứng.
-
-### Threshold
-
-- Raw `wan_status`/`tunnel_status` cập nhật theo probe mới nhất.
-- Worker-confirmed `overall_status` chỉ đổi sang DOWN/WAN_DOWN/TUNNEL_DOWN khi target hiện tại vẫn DOWN và số lần fail trong 5 lần check gần nhất đạt `DOWN_THRESHOLD`.
-- GUI keeps the previous displayed state while a target is below DOWN/UP threshold, then derives Overall from displayed WAN/Tunnel.
-- Resolve incident khi các target bắt buộc UP liên tiếp đạt `UP_THRESHOLD`.
-- `UNKNOWN` không được tính là UP để recovery.
+Nếu store chỉ cấu hình WAN hoặc chỉ cấu hình Tunnel, status được derive theo target đang có. GUI Dashboard/Stores đọc trực tiếp status đã lưu trong DB.
 
 Counter/window rule:
 
 ```text
 Target UP:      success_count += 1, fail_count = 0, down_window += 0
 Target DOWN:    fail_count += 1, success_count = 0, down_window += 1
-Target UNKNOWN: không tính recovery, không đổi down_window
+Target UNKNOWN: không đổi down_window
 ```
+
+Counters/windows chỉ còn ý nghĩa diagnostic/backward-compatible, không dùng để quyết định DOWN/UP.
 
 ## 9. Alert workflow
 
@@ -216,10 +202,9 @@ Status transition / incident event
   → commit DB state
   → add old OPEN incidents with alert_sent=false when Telegram is configured
   → add due reminder events for OPEN + alert_sent=true incidents
-  → double-check DOWN alerts/reminders before batching
   → send Telegram
   → if success: mark alert_sent/recovery_sent/reminder timestamp + last_alert_at
-  → if fail/suppressed: keep sent/reminder flags unchanged, do not rollback incident state
+  → if fail: keep sent/reminder flags unchanged, do not rollback incident state
 ```
 
 Batch alert:
@@ -298,10 +283,6 @@ APP_PORT=8080
 DATABASE_URL=sqlite:///./data/network_monitor.db
 MONITOR_INTERVAL_SECONDS=30
 PING_TIMEOUT_SECONDS=2
-PING_RETRY=3
-DOWN_THRESHOLD=4
-UP_THRESHOLD=2
-MAX_CONCURRENCY=100
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 TELEGRAM_REMINDER_INTERVAL_SECONDS=21600
@@ -337,8 +318,8 @@ Focused areas covered by tests:
 - Auth/session protection.
 - Store list/detail/delete.
 - Import preview/confirm/cancel and import safety.
-- Status engine 4-of-5 threshold, GUI threshold sync, recovery, and dedup.
-- Alert batching/dedup, 6-hour reminders, and DOWN double-check suppression.
+- Immediate status transitions, GUI DB status sync, recovery, and dedup.
+- Sequential worker flow, alert batching/dedup, and 6-hour reminders.
 - Backup/restore.
 - Incident export.
 
