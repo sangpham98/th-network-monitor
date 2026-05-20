@@ -38,8 +38,6 @@
       <tr><th>Overall</th><td class="badge status-{{ display_status }}">{{ display_status }}</td></tr>
       <tr><th>WAN</th><td>{{ display_wan_status(store) }}</td></tr>
       <tr><th>Tunnel</th><td>{{ display_tunnel_status(store) }}</td></tr>
-      <tr><th>WAN fail/success</th><td>{{ status.wan_fail_count if status else 0 }} / {{ status.wan_success_count if status else 0 }}</td></tr>
-      <tr><th>Tunnel fail/success</th><td>{{ status.tunnel_fail_count if status else 0 }} / {{ status.tunnel_success_count if status else 0 }}</td></tr>
       <tr><th>Last check</th><td>{{ status.last_check_at|local_datetime if status else '-' }}</td></tr>
       <tr><th>Last changed</th><td>{{ status.last_changed_at|local_datetime if status else '-' }}</td></tr>
       <tr><th>Last alert</th><td>{{ status.last_alert_at|local_datetime if status else '-' }}</td></tr>

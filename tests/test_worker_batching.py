@@ -101,6 +101,39 @@ async def test_run_once_pings_stores_sequentially_then_commits_once(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_run_once_skips_placeholder_targets(monkeypatch):
+    session_factory, session_local, events = make_session_factory()
+    setup_db = session_factory()
+    setup_db.add(Store(store_code="CH001", pc_name="PC001", wan_dns="0", ip_tunnel="-"))
+    setup_db.commit()
+    setup_db.close()
+    events.clear()
+
+    async def check_wan(_target, _timeout, _retry):
+        raise AssertionError("placeholder WAN target should not be pinged")
+
+    async def ping_host(_target, _timeout, _retry):
+        raise AssertionError("placeholder tunnel target should not be pinged")
+
+    monkeypatch.setattr(worker, "SessionLocal", session_local)
+    monkeypatch.setattr(worker, "check_wan", check_wan)
+    monkeypatch.setattr(worker, "ping_host", ping_host)
+    monkeypatch.setattr(worker.settings, "telegram_bot_token", "")
+    monkeypatch.setattr(worker.settings, "telegram_chat_id", "")
+
+    result = await worker._run_once_locked()
+
+    assert result["checked"] == 1
+    assert events == ["commit"]
+    db = session_factory()
+    status = db.query(StoreStatus).one()
+    assert status.wan_status == "UNKNOWN"
+    assert status.tunnel_status == "UNKNOWN"
+    assert status.overall_status == "UNKNOWN"
+    db.close()
+
+
+@pytest.mark.asyncio
 async def test_run_once_sends_telegram_after_single_status_commit(monkeypatch):
     session_factory, session_local, events = make_session_factory()
     setup_db = session_factory()

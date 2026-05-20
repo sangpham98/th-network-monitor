@@ -35,7 +35,7 @@ Excel inventory
   → update StoreStatus + open/update/resolve Incident in one DB commit
   → retry unsent alerts + collect due 6h reminders
   → end-of-round Telegram batching
-  → sleep MONITOR_INTERVAL_SECONDS, default 30s
+  → next round starts immediately
   → Dashboard / Stores / Incidents GUI
 ```
 
@@ -277,9 +277,9 @@ Rules:
 
 - Each monitor round checks stores sequentially by ID.
 - Each store is checked in this order: WAN/DNS first, then IP Tunnel.
-- Each configured target is pinged with 5 packets using a short inter-packet interval and `PING_TIMEOUT_SECONDS` as the per-target deadline.
+- Each configured target is pinged with exactly 5 packets using `-i 0.2`; worst-case duration is roughly `(5 - 1) * 0.2 + PING_TIMEOUT_SECONDS` per target.
 - DB status is updated only after the full round finishes, with one commit for the round.
-- After the round commit, the worker sleeps `MONITOR_INTERVAL_SECONDS` seconds; default `30`.
+- After the round commit and alert attempt, the worker immediately starts the next round.
 - Stored `wan_status` and `tunnel_status` keep the latest probe result.
 - Stored `overall_status` changes immediately from the current round: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, or `UNKNOWN`.
 - GUI Dashboard/Stores read stored DB status directly.

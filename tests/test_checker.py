@@ -18,7 +18,7 @@ async def test_ping_host_uses_packet_count_and_deadline(monkeypatch):
     monkeypatch.setattr(checker.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     assert await checker.ping_host("10.0.0.1", timeout=2, retry=5) is True
-    assert captured["args"][:10] == ("ping", "-c", "5", "-i", "0.2", "-W", "2", "-w", "2", "10.0.0.1")
+    assert captured["args"][:8] == ("ping", "-c", "5", "-i", "0.2", "-W", "2", "10.0.0.1")
 
 
 @pytest.mark.asyncio

@@ -145,7 +145,7 @@ Start monitor cycle
   → send Telegram alerts/reminders/recoveries
   → mark sent/reminder flags only after Telegram success
   → release lock
-  → sleep MONITOR_INTERVAL_SECONDS, default 30s
+  → next round starts immediately
 ```
 
 Nếu lock busy, cycle/request mới skip an toàn:
@@ -160,7 +160,7 @@ Nếu lock busy, cycle/request mới skip an toàn:
 
 - WAN/DNS: ping trực tiếp giá trị cấu hình, giống tunnel; DNS/IP đều chỉ cần pass/fail theo `ping`.
 - Tunnel: ping `ip_tunnel`.
-- Mỗi target cấu hình được ping 5 packets với interval ngắn và deadline theo `PING_TIMEOUT_SECONDS`; pass nếu có ít nhất 1 reply.
+- Mỗi target cấu hình được ping đúng 5 packets với `-i 0.2`; worst-case khoảng `(5 - 1) * 0.2 + PING_TIMEOUT_SECONDS` cho mỗi target; pass theo exit code của `ping`.
 - Store được check tuần tự theo thứ tự WAN/DNS rồi IP Tunnel; không ping song song.
 
 ### Derived status

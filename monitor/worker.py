@@ -23,17 +23,25 @@ from monitor.status_engine import (
 LOCK_PATH = settings.data_dir / "monitor.lock"
 PING_PACKET_COUNT = 5
 logger = logging.getLogger(__name__)
+INVALID_TARGETS = {"0", "0.0.0.0", "-", "n/a", "na", "none", "null"}
+
+
+def _target_or_none(value: str | None) -> str | None:
+    target = (value or "").strip()
+    return None if not target or target.lower() in INVALID_TARGETS else target
 
 
 async def check_store(store_id: int, wan_dns: str | None, ip_tunnel: str | None):
+    wan_target = _target_or_none(wan_dns)
+    tunnel_target = _target_or_none(ip_tunnel)
     wan_ok = (
-        await check_wan(wan_dns, settings.ping_timeout_seconds, PING_PACKET_COUNT)
-        if wan_dns
+        await check_wan(wan_target, settings.ping_timeout_seconds, PING_PACKET_COUNT)
+        if wan_target
         else None
     )
     tunnel_ok = (
-        await ping_host(ip_tunnel, settings.ping_timeout_seconds, PING_PACKET_COUNT)
-        if ip_tunnel
+        await ping_host(tunnel_target, settings.ping_timeout_seconds, PING_PACKET_COUNT)
+        if tunnel_target
         else None
     )
     return store_id, wan_ok, tunnel_ok
@@ -353,7 +361,6 @@ async def run_forever():
                 )
         except Exception:
             logger.exception("monitor error")
-        await asyncio.sleep(settings.monitor_interval_seconds)
 
 
 if __name__ == "__main__":
