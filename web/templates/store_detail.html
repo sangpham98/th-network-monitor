@@ -1,7 +1,10 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>Store {{ store.store_code }}</h1>
+{% if request.query_params.get('created') == '1' %}<div class="card">Đã thêm store.</div>{% endif %}
+{% if request.query_params.get('updated') == '1' %}<div class="card">Đã cập nhật store.</div>{% endif %}
 <p class="hint"><a href="/stores">← Back to Stores</a></p>
+<div class="toolbar"><a class="btn" href="/stores/{{ store.id }}/edit">Sửa</a></div>
 
 <section class="grid">
   <div class="card">
@@ -13,6 +16,7 @@
         <tr><th>Miền</th><td>{{ store.region or '-' }}</td></tr>
         <tr><th>Khu vực</th><td>{{ store.area or '-' }}</td></tr>
         <tr><th>Địa chỉ</th><td>{{ store.address or '-' }}</td></tr>
+        <tr><th>Enabled</th><td>{{ 'yes' if store.enabled else 'no' }}</td></tr>
       </tbody>
     </table>
   </div>

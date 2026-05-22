@@ -85,11 +85,17 @@ def test_admin_actions_blocked_when_unauthenticated(monkeypatch):
 
     monitor_response = client.post("/monitor/run-once", follow_redirects=False)
     telegram_response = client.post("/telegram/test", follow_redirects=False)
+    store_create_response = client.post("/stores", follow_redirects=False)
+    store_edit_response = client.post("/stores/1/edit", follow_redirects=False)
 
     assert monitor_response.status_code == 303
     assert monitor_response.headers["location"] == "/login"
     assert telegram_response.status_code == 303
     assert telegram_response.headers["location"] == "/login"
+    assert store_create_response.status_code == 303
+    assert store_create_response.headers["location"] == "/login"
+    assert store_edit_response.status_code == 303
+    assert store_edit_response.headers["location"] == "/login"
 
 
 def test_auth_disabled_bypasses_login(monkeypatch):

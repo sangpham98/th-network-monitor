@@ -1,10 +1,18 @@
-import ipaddress
 from pathlib import Path
 
 import pandas as pd
 
 from app.backups import create_sqlite_backup
-from app.models import Store, StoreStatus
+from app.models import Store
+from app.store_utils import (
+    IMPORT_FIELDS,
+    IP_FIELDS,
+    OPTIONAL_FIELDS,
+    clean_store_value,
+    ensure_store_status,
+    valid_ip,
+    valid_store_code_format,
+)
 
 COLUMN_MAP = {
     "Mã CH": "store_code",
@@ -28,41 +36,7 @@ COLUMN_MAP = {
     "Địa chỉ": "address",
     "Dia chi": "address",
 }
-OPTIONAL_FIELDS = ["pc_name", "ip_local", "ip_tunnel", "wan_dns", "region", "area", "address"]
-IMPORT_FIELDS = ["store_code", *OPTIONAL_FIELDS]
-IP_FIELDS = ["ip_local", "ip_tunnel"]
 BACKUP_THRESHOLD_ROWS = 50
-STORE_CODE_LENGTHS = (7, 8)
-STORE_CODE_PREFIX = "70000"
-
-
-def valid_store_code_format(code: str) -> bool:
-    if not code or not isinstance(code, str):
-        return False
-    if len(code) not in STORE_CODE_LENGTHS:
-        return False
-    if not code.isdigit():
-        return False
-    if not code.startswith(STORE_CODE_PREFIX):
-        return False
-    return True
-
-
-def clean(value):
-    if pd.isna(value):
-        return None
-    value = str(value).strip()
-    return value or None
-
-
-def valid_ip(value):
-    if not value:
-        return True
-    try:
-        ipaddress.ip_address(value)
-        return True
-    except ValueError:
-        return False
 
 
 def parse_excel(path: Path):
@@ -74,7 +48,7 @@ def parse_excel(path: Path):
 
     for idx, raw in df.iterrows():
         row_no = idx + 2
-        item = {key: clean(raw.get(key)) for key in present_fields}
+        item = {key: clean_store_value(raw.get(key)) for key in present_fields}
 
         if not item.get("store_code"):
             errors.append({"row": row_no, "error": "Thiếu Mã CH"})
@@ -204,8 +178,7 @@ def import_excel(db, path: Path):
         skipped_missing_column_fields += missing_count
 
         db.flush()
-        if not db.query(StoreStatus).filter(StoreStatus.store_id == store.id).first():
-            db.add(StoreStatus(store_id=store.id))
+        ensure_store_status(db, store)
 
     db.commit()
     return {

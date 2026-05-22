@@ -31,7 +31,7 @@
       <td class="badge status-{{ display_status }}">{{ display_status }}</td>
       <td>{{ store.status.last_check_at|local_datetime if store.status else '-' }}</td>
       {% if show_delete|default(false) %}
-      <td><form method="post" action="/stores/{{ store.id }}/delete" onsubmit="return confirm('Xóa store {{ store.store_code }}?')"><button class="btn" type="submit">Xóa</button></form></td>
+      <td><a class="btn" href="/stores/{{ store.id }}/edit">Sửa</a> <form method="post" action="/stores/{{ store.id }}/delete" onsubmit="return confirm('Xóa store {{ store.store_code }}?')"><button class="btn" type="submit">Xóa</button></form></td>
       {% endif %}
     </tr>
     {% endfor %}

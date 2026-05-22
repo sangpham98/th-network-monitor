@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from alerts.telegram import send_telegram
@@ -20,6 +21,15 @@ from app.database import get_db, init_db
 from app.logging_config import configure_logging
 from app.models import Incident, Store, StoreStatus
 from app.reports import build_incident_report
+from app.store_utils import (
+    IP_FIELDS,
+    STORE_FORM_FIELDS,
+    clean_store_value,
+    ensure_store_status,
+    set_store_optional_fields,
+    valid_ip,
+    valid_store_code_format,
+)
 from importers.excel_importer import import_excel, preview_excel
 from monitor.worker import monitor_is_running, read_monitor_status, run_once
 
@@ -99,6 +109,53 @@ def _safe_redirect_path(value: str) -> str:
     if value.startswith("/") and not value.startswith("//") and "\r" not in value and "\n" not in value:
         return value
     return "/"
+
+
+def _store_form_data(values: dict | Store | None = None, enabled: bool = True) -> dict:
+    if values is None:
+        values = {}
+    data = {field: clean_store_value(getattr(values, field, None) if isinstance(values, Store) else values.get(field)) for field in STORE_FORM_FIELDS}
+    data["enabled"] = bool(getattr(values, "enabled", enabled) if isinstance(values, Store) else enabled)
+    return data
+
+
+def _validate_store_form(db: Session, data: dict, store_id: int | None = None) -> list[str]:
+    errors = []
+    store_code = data.get("store_code")
+    if store_id is None:
+        if not valid_store_code_format(store_code):
+            errors.append("Mã CH không đúng định dạng (cần 7 hoặc 8 số, bắt đầu bằng 70000).")
+        elif db.query(Store.id).filter(Store.store_code == store_code).first() is not None:
+            errors.append("Mã CH đã tồn tại.")
+
+    for field in IP_FIELDS:
+        if not valid_ip(data.get(field)):
+            errors.append(f"{field} không hợp lệ.")
+    return errors
+
+
+def _store_form_context(current_user: str, data: dict, errors: list[str], store: Store | None = None) -> dict:
+    if store:
+        return {
+            "store": store,
+            "form": data,
+            "errors": errors,
+            "current_user": current_user,
+            "title": f"Sửa store {data['store_code']}",
+            "form_action": f"/stores/{store.id}/edit",
+            "cancel_url": f"/stores/{store.id}",
+            "store_code_readonly": True,
+        }
+    return {
+        "store": None,
+        "form": data,
+        "errors": errors,
+        "current_user": current_user,
+        "title": "Thêm store",
+        "form_action": "/stores",
+        "cancel_url": "/stores",
+        "store_code_readonly": False,
+    }
 
 
 templates.env.filters["local_datetime"] = local_datetime
@@ -189,6 +246,124 @@ def stores(request: Request, q: str = "", status: str = "", db: Session = Depend
             **monitor_context(db),
         },
     )
+
+
+@app.get("/stores/new", response_class=HTMLResponse)
+def store_new(request: Request, current_user: str = Depends(require_auth)):
+    data = _store_form_data()
+    return templates.TemplateResponse(request, "store_form.html", _store_form_context(current_user, data, []))
+
+
+@app.post("/stores")
+def store_create(
+    request: Request,
+    store_code: str = Form(""),
+    pc_name: str = Form(""),
+    ip_local: str = Form(""),
+    ip_tunnel: str = Form(""),
+    wan_dns: str = Form(""),
+    region: str = Form(""),
+    area: str = Form(""),
+    address: str = Form(""),
+    enabled: str = Form("0"),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_auth),
+):
+    data = _store_form_data(
+        {
+            "store_code": store_code,
+            "pc_name": pc_name,
+            "ip_local": ip_local,
+            "ip_tunnel": ip_tunnel,
+            "wan_dns": wan_dns,
+            "region": region,
+            "area": area,
+            "address": address,
+        },
+        enabled == "1",
+    )
+    errors = _validate_store_form(db, data)
+    if errors:
+        return templates.TemplateResponse(
+            request,
+            "store_form.html",
+            _store_form_context(current_user, data, errors),
+            status_code=400,
+        )
+
+    store = Store(store_code=data["store_code"], enabled=data["enabled"])
+    set_store_optional_fields(store, data)
+    db.add(store)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        errors = ["Mã CH đã tồn tại."]
+        return templates.TemplateResponse(
+            request,
+            "store_form.html",
+            _store_form_context(current_user, data, errors),
+            status_code=400,
+        )
+    ensure_store_status(db, store)
+    db.commit()
+    return RedirectResponse(url=f"/stores/{store.id}?created=1", status_code=303)
+
+
+@app.get("/stores/{store_id}/edit", response_class=HTMLResponse)
+def store_edit(request: Request, store_id: int, db: Session = Depends(get_db), current_user: str = Depends(require_auth)):
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    data = _store_form_data(store)
+    return templates.TemplateResponse(request, "store_form.html", _store_form_context(current_user, data, [], store))
+
+
+@app.post("/stores/{store_id}/edit")
+def store_update(
+    request: Request,
+    store_id: int,
+    pc_name: str = Form(""),
+    ip_local: str = Form(""),
+    ip_tunnel: str = Form(""),
+    wan_dns: str = Form(""),
+    region: str = Form(""),
+    area: str = Form(""),
+    address: str = Form(""),
+    enabled: str = Form("0"),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_auth),
+):
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    data = _store_form_data(
+        {
+            "store_code": store.store_code,
+            "pc_name": pc_name,
+            "ip_local": ip_local,
+            "ip_tunnel": ip_tunnel,
+            "wan_dns": wan_dns,
+            "region": region,
+            "area": area,
+            "address": address,
+        },
+        enabled == "1",
+    )
+    errors = _validate_store_form(db, data, store_id=store.id)
+    if errors:
+        return templates.TemplateResponse(
+            request,
+            "store_form.html",
+            _store_form_context(current_user, data, errors, store),
+            status_code=400,
+        )
+
+    set_store_optional_fields(store, data)
+    store.enabled = data["enabled"]
+    db.commit()
+    return RedirectResponse(url=f"/stores/{store.id}?updated=1", status_code=303)
 
 
 @app.post("/stores/{store_id}/delete")

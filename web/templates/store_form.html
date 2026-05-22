@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>{{ title }}</h1>
+
+{% if errors %}
+<div class="card">
+  <strong>Lỗi:</strong>
+  <ul>
+    {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<section class="card">
+  <form method="post" action="{{ form_action }}">
+    <table>
+      <tbody>
+        <tr>
+          <th>Mã CH</th>
+          <td>
+            {% if store_code_readonly %}
+            <strong>{{ form.store_code }}</strong>
+            {% else %}
+            <input name="store_code" value="{{ form.store_code or '' }}" required placeholder="70000xxx">
+            {% endif %}
+          </td>
+        </tr>
+        <tr><th>PC Name</th><td><input name="pc_name" value="{{ form.pc_name or '' }}"></td></tr>
+        <tr><th>IP Local</th><td><input name="ip_local" value="{{ form.ip_local or '' }}" placeholder="192.168.x.x"></td></tr>
+        <tr><th>IP Tunnel</th><td><input name="ip_tunnel" value="{{ form.ip_tunnel or '' }}" placeholder="10.x.x.x"></td></tr>
+        <tr><th>WAN DNS</th><td><input name="wan_dns" value="{{ form.wan_dns or '' }}"></td></tr>
+        <tr><th>Miền</th><td><input name="region" value="{{ form.region or '' }}"></td></tr>
+        <tr><th>Khu vực</th><td><input name="area" value="{{ form.area or '' }}"></td></tr>
+        <tr><th>Địa chỉ</th><td><textarea name="address" rows="3">{{ form.address or '' }}</textarea></td></tr>
+        <tr><th>Enabled</th><td><label><input type="checkbox" name="enabled" value="1" {% if form.enabled %}checked{% endif %}> Monitor store này</label></td></tr>
+      </tbody>
+    </table>
+    <div class="toolbar">
+      <button class="btn" type="submit">Lưu</button>
+      <a class="btn" href="{{ cancel_url }}">Hủy</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
