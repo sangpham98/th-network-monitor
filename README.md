@@ -123,6 +123,43 @@ sudo systemctl daemon-reload
 sudo systemctl restart th-network-monitor-web th-network-monitor-worker
 ```
 
+## Cloudflare Tunnel setup
+
+Dùng Cloudflare Tunnel để publish web GUI ra ngoài mà không cần mở port trực tiếp trên server. Tạo tunnel trong Cloudflare Zero Trust trước, copy token, rồi thay `TOKEN_CUA_BAN` bên dưới bằng token thật.
+
+```bash
+# Add Cloudflare GPG key
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | sudo tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+
+# Add cloudflared apt repo
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+
+# Install cloudflared
+sudo apt-get update
+sudo apt-get install -y cloudflared
+
+# Install tunnel service with your Cloudflare token
+sudo cloudflared service install 'TOKEN_CUA_BAN'
+
+# Enable and start service
+sudo systemctl enable cloudflared
+sudo systemctl start cloudflared
+
+# Reload/restart and check status
+sudo systemctl daemon-reload
+sudo systemctl restart cloudflared
+sudo systemctl status cloudflared -l --no-pager
+```
+
+Cloudflare route/service nên trỏ về app local:
+
+```text
+http://localhost:8080
+```
+
+Không commit hoặc paste token thật vào repo, issue, log, hoặc README.
+
 Get Telegram chat ID after setting `TELEGRAM_BOT_TOKEN`:
 
 ```bash
