@@ -3,6 +3,13 @@ from io import BytesIO
 import pandas as pd
 
 
+def _workbook_bytes(data: list[dict], sheet_name: str) -> bytes:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        pd.DataFrame(data).to_excel(writer, index=False, sheet_name=sheet_name)
+    return output.getvalue()
+
+
 def build_incident_report(rows) -> bytes:
     data = []
     for incident, store in rows:
@@ -23,8 +30,8 @@ def build_incident_report(rows) -> bytes:
                 "Detail": incident.detail,
             }
         )
+    return _workbook_bytes(data, "Incidents")
 
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        pd.DataFrame(data).to_excel(writer, index=False, sheet_name="Incidents")
-    return output.getvalue()
+
+def build_store_report(rows) -> bytes:
+    return _workbook_bytes(rows, "Stores")

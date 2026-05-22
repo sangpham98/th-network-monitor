@@ -20,7 +20,7 @@ from app.config import DEFAULT_TIMEZONE, settings
 from app.database import get_db, init_db
 from app.logging_config import configure_logging
 from app.models import Incident, Store, StoreStatus
-from app.reports import build_incident_report
+from app.reports import build_incident_report, build_store_report
 from app.store_utils import (
     IP_FIELDS,
     STORE_FORM_FIELDS,
@@ -221,8 +221,7 @@ def dashboard(request: Request, db: Session = Depends(get_db), current_user: str
     )
 
 
-@app.get("/stores", response_class=HTMLResponse)
-def stores(request: Request, q: str = "", status: str = "", db: Session = Depends(get_db), current_user: str = Depends(require_auth)):
+def _store_rows(db: Session, q: str = "", status: str = "") -> list[Store]:
     query = db.query(Store).outerjoin(StoreStatus)
     if q:
         like = f"%{q}%"
@@ -232,19 +231,58 @@ def stores(request: Request, q: str = "", status: str = "", db: Session = Depend
     rows = query.order_by(Store.store_code).all()
     if status:
         rows = [store for store in rows if display_overall_status(store) == status]
+    return rows
+
+
+def _store_report_rows(stores: list[Store]) -> list[dict]:
+    return [
+        {
+            "Store Code": store.store_code,
+            "PC Name": store.pc_name,
+            "Region": store.region,
+            "Area": store.area,
+            "Address": store.address,
+            "Enabled": store.enabled,
+            "WAN/DNS": store.wan_dns,
+            "WAN Status": display_wan_status(store),
+            "IP Tunnel": store.ip_tunnel,
+            "Tunnel Status": display_tunnel_status(store),
+            "IP Local": store.ip_local,
+            "Overall Status": display_overall_status(store),
+            "Last Check At": store.status.last_check_at if store.status else None,
+            "Last Changed At": store.status.last_changed_at if store.status else None,
+            "Last Alert At": store.status.last_alert_at if store.status else None,
+        }
+        for store in stores
+    ]
+
+
+@app.get("/stores", response_class=HTMLResponse)
+def stores(request: Request, q: str = "", status: str = "", db: Session = Depends(get_db), current_user: str = Depends(require_auth)):
+    rows = _store_rows(db, q, status)
     filtered_count = len(rows)
-    rows = rows[:1000]
     return templates.TemplateResponse(
         request,
         "stores.html",
         {
-            "stores": rows,
+            "stores": rows[:1000],
             "filtered_count": filtered_count,
             "q": q,
             "status": status,
             "current_user": current_user,
             **monitor_context(db),
         },
+    )
+
+
+@app.get("/stores/export")
+def stores_export(q: str = "", status: str = "", db: Session = Depends(get_db), _current_user: str = Depends(require_auth)):
+    content = build_store_report(_store_report_rows(_store_rows(db, q, status)))
+    filename = f"store_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

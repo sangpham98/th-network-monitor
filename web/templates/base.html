@@ -16,7 +16,6 @@
     <a href="/import">Import Excel</a>
     <a href="/incidents">Incidents</a>
     <a href="/backups">Backups</a>
-    <form method="post" action="/monitor/run-once"><input type="hidden" name="return_to" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><button class="btn">Check now</button></form>
     <span class="hint">{{ current_user }}</span>
     <form method="post" action="/logout"><button class="btn">Logout</button></form>
     {% endif %}
