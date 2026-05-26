@@ -1,39 +1,41 @@
-<table>
-  <thead>
-    <tr>
-      <th>Mã CH</th>
-      <th>PC Name</th>
-      <th>Miền</th>
-      <th>Khu vực</th>
-      <th>WAN/DNS</th>
-      <th>WAN Status</th>
-      <th>IP Tunnel</th>
-      <th>Tunnel Status</th>
-      <th>Overall</th>
-      <th>Last Check</th>
-      {% if show_delete|default(false) %}<th>Action</th>{% endif %}
-    </tr>
-  </thead>
-  <tbody>
-    {% for store in stores %}
-    {% set display_status = display_overall_status(store) %}
-    {% set wan_status = display_wan_status(store) %}
-    {% set tunnel_status = display_tunnel_status(store) %}
-    <tr>
-      <td><a href="/stores/{{ store.id }}">{{ store.store_code }}</a></td>
-      <td>{{ store.pc_name or '-' }}</td>
-      <td>{{ store.region or '-' }}</td>
-      <td>{{ store.area or '-' }}</td>
-      <td>{{ store.wan_dns or '-' }}</td>
-      <td class="badge status-{{ wan_status }}">{{ wan_status }}</td>
-      <td>{{ store.ip_tunnel or '-' }}</td>
-      <td class="badge status-{{ tunnel_status }}">{{ tunnel_status }}</td>
-      <td class="badge status-{{ display_status }}">{{ display_status }}</td>
-      <td>{{ store.status.last_check_at|local_datetime if store.status else '-' }}</td>
-      {% if show_delete|default(false) %}
-      <td><a class="btn" href="/stores/{{ store.id }}/edit">Sửa</a> <form method="post" action="/stores/{{ store.id }}/delete" onsubmit="return confirm('Xóa store {{ store.store_code }}?')"><button class="btn" type="submit">Xóa</button></form></td>
-      {% endif %}
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-wrap">
+  <table class="data-table store-table">
+    <thead>
+      <tr>
+        <th>Mã CH</th>
+        <th>PC Name</th>
+        <th>Miền</th>
+        <th>Khu vực</th>
+        <th>WAN/DNS</th>
+        <th>WAN Status</th>
+        <th>IP Tunnel</th>
+        <th>Tunnel Status</th>
+        <th>Overall</th>
+        <th>Last Check</th>
+        {% if show_delete|default(false) %}<th>Action</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for store in stores %}
+      {% set display_status = display_overall_status(store) %}
+      {% set wan_status = display_wan_status(store) %}
+      {% set tunnel_status = display_tunnel_status(store) %}
+      <tr>
+        <td><a href="/stores/{{ store.id }}">{{ store.store_code }}</a></td>
+        <td>{{ store.pc_name or '-' }}</td>
+        <td>{{ store.region or '-' }}</td>
+        <td>{{ store.area or '-' }}</td>
+        <td>{{ store.wan_dns or '-' }}</td>
+        <td><span class="badge status-{{ wan_status }}">{{ wan_status }}</span></td>
+        <td>{{ store.ip_tunnel or '-' }}</td>
+        <td><span class="badge status-{{ tunnel_status }}">{{ tunnel_status }}</span></td>
+        <td><span class="badge status-{{ display_status }}">{{ display_status }}</span></td>
+        <td>{{ store.status.last_check_at|local_datetime if store.status else '-' }}</td>
+        {% if show_delete|default(false) %}
+        <td class="actions"><a class="btn" href="/stores/{{ store.id }}/edit">Sửa</a> <form method="post" action="/stores/{{ store.id }}/delete" onsubmit="return confirm('Xóa store {{ store.store_code }}?')"><button class="btn btn-danger" type="submit">Xóa</button></form></td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

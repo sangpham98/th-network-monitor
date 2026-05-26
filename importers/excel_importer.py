@@ -8,6 +8,7 @@ from app.store_utils import (
     IMPORT_FIELDS,
     IP_FIELDS,
     OPTIONAL_FIELDS,
+    STORE_EXCEL_FIELD_BY_HEADER,
     clean_store_value,
     ensure_store_status,
     valid_ip,
@@ -15,25 +16,18 @@ from app.store_utils import (
 )
 
 COLUMN_MAP = {
-    "Mã CH": "store_code",
+    **STORE_EXCEL_FIELD_BY_HEADER,
     "Ma CH": "store_code",
     "Store Code": "store_code",
-    "PC Name": "pc_name",
-    "IP Local": "ip_local",
     "IP tunel": "ip_tunnel",
-    "IP Tunnel": "ip_tunnel",
-    "WAN DNS": "wan_dns",
     "WAN\x7fDNS": "wan_dns",
     "WAN_DNS": "wan_dns",
     "DNS WAN": "wan_dns",
     "DNS_WAN": "wan_dns",
     "DNS": "wan_dns",
     "Domain": "wan_dns",
-    "Miền": "region",
     "Mien": "region",
-    "Khu vực": "area",
     "Khu vuc": "area",
-    "Địa chỉ": "address",
     "Dia chi": "address",
 }
 BACKUP_THRESHOLD_ROWS = 50

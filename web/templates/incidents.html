@@ -1,7 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>Incidents</h1>
-<form class="toolbar" method="get" action="/incidents">
+<div class="page-header">
+  <h1>Incidents</h1>
+</div>
+<form class="toolbar filter-bar" method="get" action="/incidents">
   <input name="store_code" value="{{ store_code }}" placeholder="Mã CH">
   <select name="status">
     <option value="">Tất cả status</option>
@@ -12,37 +14,38 @@
   <input type="date" name="from_date" value="{{ from_date }}">
   <input type="date" name="to_date" value="{{ to_date }}">
   <button class="btn">Lọc</button>
-  <a class="btn" href="/incidents/export?{{ request.query_params }}">Export Excel</a>
+  <a class="btn btn-secondary" href="/incidents/export?{{ request.query_params }}">Export Excel</a>
 </form>
-<table>
-  <thead>
-    <tr>
-      <th>Incident ID</th>
-      <th>Mã CH</th>
-      <th>Khu vực</th>
-      <th>Loại lỗi</th>
-      <th>Status</th>
-      <th>Bắt đầu</th>
-      <th>Kết thúc</th>
-      <th>Downtime(s)</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for incident, store in rows %}
-    <tr>
-      <td>{{ incident.id }}</td>
-      <td><a href="/stores/{{ store.id }}">{{ store.store_code }}</a></td>
-      <td>{{ store.area or '-' }}</td>
-      <td>{{ incident.incident_type }}</td>
-      <td>{{ incident.status }}</td>
-      <td>{{ incident.started_at|local_datetime }}</td>
-      <td>{{ incident.ended_at|local_datetime }}</td>
-      <td>{{ incident.duration_seconds or '-' }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="8">No incidents.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Incident ID</th>
+        <th>Mã CH</th>
+        <th>Khu vực</th>
+        <th>Loại lỗi</th>
+        <th>Status</th>
+        <th>Bắt đầu</th>
+        <th>Kết thúc</th>
+        <th>Downtime(s)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for incident, store in rows %}
+      <tr>
+        <td>{{ incident.id }}</td>
+        <td><a href="/stores/{{ store.id }}">{{ store.store_code }}</a></td>
+        <td>{{ store.area or '-' }}</td>
+        <td>{{ incident.incident_type }}</td>
+        <td><span class="badge status-{{ incident.status }}">{{ incident.status }}</span></td>
+        <td>{{ incident.started_at|local_datetime }}</td>
+        <td>{{ incident.ended_at|local_datetime }}</td>
+        <td>{{ incident.duration_seconds or '-' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">No incidents.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}
-

@@ -7,6 +7,18 @@ OPTIONAL_FIELDS = ["pc_name", "ip_local", "ip_tunnel", "wan_dns", "region", "are
 IMPORT_FIELDS = ["store_code", *OPTIONAL_FIELDS]
 IP_FIELDS = ["ip_local", "ip_tunnel"]
 STORE_FORM_FIELDS = ["store_code", *OPTIONAL_FIELDS]
+STORE_EXCEL_COLUMNS = [
+    ("Mã CH", "store_code"),
+    ("PC Name", "pc_name"),
+    ("IP Local", "ip_local"),
+    ("IP Tunnel", "ip_tunnel"),
+    ("WAN DNS", "wan_dns"),
+    ("Miền", "region"),
+    ("Khu vực", "area"),
+    ("Địa chỉ", "address"),
+]
+STORE_EXCEL_HEADERS = [column[0] for column in STORE_EXCEL_COLUMNS]
+STORE_EXCEL_FIELD_BY_HEADER = {header: field for header, field in STORE_EXCEL_COLUMNS}
 STORE_CODE_LENGTHS = (7, 8)
 STORE_CODE_PREFIX = "70000"
 

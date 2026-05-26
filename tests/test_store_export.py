@@ -139,9 +139,9 @@ def test_store_export_workbook_contains_headers_and_rows(monkeypatch):
     rows = workbook_rows(response.content)
 
     clear_overrides()
-    assert rows[0][:6] == ("Store Code", "PC Name", "Region", "Area", "Address", "Enabled")
-    assert any(row[0] == "70000123" and row[7] == "UP" and row[11] == "TUNNEL_DOWN" for row in rows[1:])
-    assert any(row[0] == "70000124" and row[5] is False and row[11] == "UP" for row in rows[1:])
+    assert rows[0] == ("Mã CH", "PC Name", "IP Local", "IP Tunnel", "WAN DNS", "Miền", "Khu vực", "Địa chỉ")
+    assert any(row[0] == "70000123" and row[2] == "192.168.1.10" and row[4] == "wan.example" for row in rows[1:])
+    assert any(row[0] == "70000124" and row[5] == "HN" and row[7] == "456 Test Street" for row in rows[1:])
 
 
 def test_store_export_q_filter(monkeypatch):
@@ -168,7 +168,7 @@ def test_store_export_status_filter(monkeypatch):
     clear_overrides()
     assert len(rows) == 2
     assert rows[1][0] == "70000123"
-    assert rows[1][11] == "TUNNEL_DOWN"
+    assert rows[1][3] == "10.0.0.1"
 
 
 def test_stores_page_has_export_link_and_no_check_now(monkeypatch):

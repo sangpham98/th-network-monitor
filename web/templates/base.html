@@ -4,20 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>TH Network Monitor</title>
+  <link rel="icon" href="data:,">
   {% if auto_refresh_seconds is defined %}<meta http-equiv="refresh" content="{{ auto_refresh_seconds }}">{% endif %}
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
   <div class="nav">
-    <strong>TH Network Monitor</strong>
+    <strong class="brand">TH Network Monitor</strong>
     {% if current_user %}
-    <a href="/">Dashboard</a>
-    <a href="/stores">Stores</a>
-    <a href="/import">Import Excel</a>
-    <a href="/incidents">Incidents</a>
-    <a href="/backups">Backups</a>
-    <span class="hint">{{ current_user }}</span>
-    <form method="post" action="/logout"><button class="btn">Logout</button></form>
+    <div class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/stores">Stores</a>
+      <a href="/import">Import Excel</a>
+      <a href="/incidents">Incidents</a>
+      <a href="/backups">Backups</a>
+    </div>
+    <div class="nav-user">
+      <span class="hint">{{ current_user }}</span>
+      <form class="logout-form" method="post" action="/logout"><button class="btn">Logout</button></form>
+    </div>
     {% endif %}
   </div>
   <main class="wrap">{% if monitor_running is defined %}<div class="monitor-bar {% if monitor_running %}running{% endif %}">Monitor: {% if monitor_running %}đang chạy batch {{ monitor_status.batch_current|default('?') }}/{{ monitor_status.batch_total|default('?') }}; checked {{ monitor_status.checked|default(0) }}/{{ monitor_status.total|default('?') }} store; status cập nhật sau mỗi batch commit DB{% else %}idle{% endif %}. Last check: {{ latest_check_at|local_datetime if latest_check_at else '-' }}</div>{% endif %}{% block content %}{% endblock %}</main>

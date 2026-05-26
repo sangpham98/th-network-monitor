@@ -1,10 +1,14 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>Store {{ store.store_code }}</h1>
-{% if request.query_params.get('created') == '1' %}<div class="card">Đã thêm store.</div>{% endif %}
-{% if request.query_params.get('updated') == '1' %}<div class="card">Đã cập nhật store.</div>{% endif %}
-<p class="hint"><a href="/stores">← Back to Stores</a></p>
-<div class="toolbar"><a class="btn" href="/stores/{{ store.id }}/edit">Sửa</a></div>
+<div class="page-header">
+  <div>
+    <h1>Store {{ store.store_code }}</h1>
+    <p class="hint"><a href="/stores">← Back to Stores</a></p>
+  </div>
+  <div class="toolbar action-bar"><a class="btn" href="/stores/{{ store.id }}/edit">Sửa</a></div>
+</div>
+{% if request.query_params.get('created') == '1' %}<div class="alert">Đã thêm store.</div>{% endif %}
+{% if request.query_params.get('updated') == '1' %}<div class="alert">Đã cập nhật store.</div>{% endif %}
 
 <section class="grid">
   <div class="card">
@@ -39,9 +43,9 @@
   <table>
     <tbody>
       {% set display_status = display_overall_status(store) %}
-      <tr><th>Overall</th><td class="badge status-{{ display_status }}">{{ display_status }}</td></tr>
-      <tr><th>WAN</th><td>{{ display_wan_status(store) }}</td></tr>
-      <tr><th>Tunnel</th><td>{{ display_tunnel_status(store) }}</td></tr>
+      <tr><th>Overall</th><td><span class="badge status-{{ display_status }}">{{ display_status }}</span></td></tr>
+      <tr><th>WAN</th><td><span class="badge status-{{ display_wan_status(store) }}">{{ display_wan_status(store) }}</span></td></tr>
+      <tr><th>Tunnel</th><td><span class="badge status-{{ display_tunnel_status(store) }}">{{ display_tunnel_status(store) }}</span></td></tr>
       <tr><th>Last check</th><td>{{ status.last_check_at|local_datetime if status else '-' }}</td></tr>
       <tr><th>Last changed</th><td>{{ status.last_changed_at|local_datetime if status else '-' }}</td></tr>
       <tr><th>Last alert</th><td>{{ status.last_alert_at|local_datetime if status else '-' }}</td></tr>
@@ -51,35 +55,37 @@
 
 <section class="card">
   <h2>Incident history</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Type</th>
-        <th>Status</th>
-        <th>Started</th>
-        <th>Ended</th>
-        <th>Duration</th>
-        <th>Alert sent</th>
-        <th>Recovery sent</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for incident in incidents %}
-      <tr>
-        <td>{{ incident.id }}</td>
-        <td>{{ incident.incident_type }}</td>
-        <td>{{ incident.status }}</td>
-        <td>{{ incident.started_at|local_datetime }}</td>
-        <td>{{ incident.ended_at|local_datetime }}</td>
-        <td>{{ incident.duration_seconds if incident.duration_seconds is not none else '-' }}</td>
-        <td>{{ 'yes' if incident.alert_sent else 'no' }}</td>
-        <td>{{ 'yes' if incident.recovery_sent else 'no' }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="8">No incidents.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Started</th>
+          <th>Ended</th>
+          <th>Duration</th>
+          <th>Alert sent</th>
+          <th>Recovery sent</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for incident in incidents %}
+        <tr>
+          <td>{{ incident.id }}</td>
+          <td>{{ incident.incident_type }}</td>
+          <td><span class="badge status-{{ incident.status }}">{{ incident.status }}</span></td>
+          <td>{{ incident.started_at|local_datetime }}</td>
+          <td>{{ incident.ended_at|local_datetime }}</td>
+          <td>{{ incident.duration_seconds if incident.duration_seconds is not none else '-' }}</td>
+          <td>{{ 'yes' if incident.alert_sent else 'no' }}</td>
+          <td>{{ 'yes' if incident.recovery_sent else 'no' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8">No incidents.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}

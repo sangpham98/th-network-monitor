@@ -23,6 +23,8 @@ from app.models import Incident, Store, StoreStatus
 from app.reports import build_incident_report, build_store_report
 from app.store_utils import (
     IP_FIELDS,
+    STORE_EXCEL_COLUMNS,
+    STORE_EXCEL_HEADERS,
     STORE_FORM_FIELDS,
     clean_store_value,
     ensure_store_status,
@@ -235,26 +237,7 @@ def _store_rows(db: Session, q: str = "", status: str = "") -> list[Store]:
 
 
 def _store_report_rows(stores: list[Store]) -> list[dict]:
-    return [
-        {
-            "Store Code": store.store_code,
-            "PC Name": store.pc_name,
-            "Region": store.region,
-            "Area": store.area,
-            "Address": store.address,
-            "Enabled": store.enabled,
-            "WAN/DNS": store.wan_dns,
-            "WAN Status": display_wan_status(store),
-            "IP Tunnel": store.ip_tunnel,
-            "Tunnel Status": display_tunnel_status(store),
-            "IP Local": store.ip_local,
-            "Overall Status": display_overall_status(store),
-            "Last Check At": store.status.last_check_at if store.status else None,
-            "Last Changed At": store.status.last_changed_at if store.status else None,
-            "Last Alert At": store.status.last_alert_at if store.status else None,
-        }
-        for store in stores
-    ]
+    return [{header: getattr(store, field) for header, field in STORE_EXCEL_COLUMNS} for store in stores]
 
 
 @app.get("/stores", response_class=HTMLResponse)
@@ -438,7 +421,11 @@ def store_detail(request: Request, store_id: int, db: Session = Depends(get_db),
 
 @app.get("/import", response_class=HTMLResponse)
 def import_page(request: Request, current_user: str = Depends(require_auth)):
-    return templates.TemplateResponse(request, "import.html", {"current_user": current_user})
+    return templates.TemplateResponse(
+        request,
+        "import.html",
+        {"current_user": current_user, "store_excel_headers": STORE_EXCEL_HEADERS},
+    )
 
 
 def _safe_upload_name(filename: str | None) -> str:
@@ -479,7 +466,7 @@ def _render_import_preview(request: Request, file: UploadFile, db: Session, curr
     return templates.TemplateResponse(
         request,
         "import_preview.html",
-        {"token": token, "preview": preview, "current_user": current_user},
+        {"token": token, "preview": preview, "current_user": current_user, "store_excel_headers": STORE_EXCEL_HEADERS},
     )
 
 
