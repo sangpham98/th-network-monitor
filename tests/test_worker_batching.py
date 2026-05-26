@@ -168,21 +168,27 @@ async def test_run_once_commits_each_50_store_batch_before_telegram(tmp_path, mo
     monkeypatch.setattr(worker.settings, "telegram_bot_token", "token")
     monkeypatch.setattr(worker.settings, "telegram_chat_id", "chat")
 
-    result = await worker._run_once_locked()
+    first_result = await worker._run_once_locked()
+    second_result = await worker._run_once_locked()
 
-    assert events.count("commit") == 2
+    assert events.count("commit") == 4
     assert events[100] == "commit"
-    assert events[103:] == ["commit", "send"]
-    assert result["checked"] == 51
+    assert events[103] == "commit"
+    assert events[204] == "commit"
+    assert events[207:] == ["commit", "send"]
+    assert first_result["checked"] == 51
+    assert first_result["alerts"] == 0
+    assert first_result["messages"] == 0
+    assert second_result["checked"] == 51
     assert worker.read_monitor_status()["batch_current"] == 2
     assert worker.read_monitor_status()["batch_total"] == 2
     assert worker.read_monitor_status()["checked"] == 51
-    assert result["alerts"] == 51
-    assert result["messages"] == 1
-    assert result["send_failed"] == 1
+    assert second_result["alerts"] == 51
+    assert second_result["messages"] == 1
+    assert second_result["send_failed"] == 1
     assert len(sent_messages) == 1
     assert "📌 Tổng affected: <b>51</b>" in sent_messages[0]
-    assert len(ping_calls) == 102
+    assert len(ping_calls) == 204
     assert all(call[2] == 5 for call in ping_calls)
 
     db = session_factory()

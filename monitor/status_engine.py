@@ -178,6 +178,16 @@ def _set_target_counters(status: StoreStatus, wan_ok: bool | None, tunnel_ok: bo
         status.tunnel_success_count = 0
 
 
+def _down_confirmed(status: StoreStatus, overall: str) -> bool:
+    if overall == "WAN_DOWN":
+        return (status.wan_fail_count or 0) >= 2
+    if overall == "TUNNEL_DOWN":
+        return (status.tunnel_fail_count or 0) >= 2
+    if overall == "DOWN":
+        return (status.wan_fail_count or 0) >= 2 and (status.tunnel_fail_count or 0) >= 2
+    return False
+
+
 def _get_open_incident(db, store_id: int) -> Incident | None:
     return db.query(Incident).filter(Incident.store_id == store_id, Incident.status == "OPEN").order_by(Incident.started_at.desc()).first()
 
@@ -213,24 +223,25 @@ def update_status_and_incident(
             status.last_changed_at = now
             changed = True
 
-        open_incident = _get_open_incident(db, store.id)
-        if open_incident is None:
-            open_incident = Incident(
-                store_id=store.id,
-                incident_type=new_overall,
-                status="OPEN",
-                detail=f"Changed from {old_overall} to {new_overall}",
-            )
-            db.add(open_incident)
-            db.flush()
-            changed = True
-        elif open_incident.incident_type != new_overall or old_overall != new_overall:
-            open_incident.incident_type = new_overall
-            open_incident.detail = f"Changed from {old_overall} to {new_overall}"
-            changed = True
+        if _down_confirmed(status, new_overall):
+            open_incident = _get_open_incident(db, store.id)
+            if open_incident is None:
+                open_incident = Incident(
+                    store_id=store.id,
+                    incident_type=new_overall,
+                    status="OPEN",
+                    detail=f"Changed from {old_overall} to {new_overall}",
+                )
+                db.add(open_incident)
+                db.flush()
+                changed = True
+            elif open_incident.incident_type != new_overall or old_overall != new_overall:
+                open_incident.incident_type = new_overall
+                open_incident.detail = f"Changed from {old_overall} to {new_overall}"
+                changed = True
 
-        if changed and not open_incident.alert_sent:
-            incident_ids.append(open_incident.id)
+            if changed and not open_incident.alert_sent:
+                incident_ids.append(open_incident.id)
 
     elif new_overall == "UP" and old_overall != "UP":
         status.overall_status = "UP"

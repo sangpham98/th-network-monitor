@@ -35,6 +35,11 @@ def test_alert_sent_incident_does_not_generate_duplicate_event():
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
     db.commit()
     assert changed is True
+    assert incident_ids == []
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
+    db.commit()
+    assert changed is True
     assert incident_ids
 
     incident = db.query(Incident).one()

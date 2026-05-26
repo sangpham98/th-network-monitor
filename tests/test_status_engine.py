@@ -21,6 +21,10 @@ def make_store(db, *, wan_dns="wan.example", ip_tunnel="10.0.0.1"):
     return store
 
 
+def open_incidents(db, store):
+    return db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").all()
+
+
 def test_alert_formatters_accept_worker_events():
     event = {
         "store_code": "70000123",
@@ -48,7 +52,7 @@ def test_alert_formatters_accept_worker_events():
     assert "🔥 TH NETWORK MAJOR INCIDENT" in major
 
 
-def test_wan_failure_opens_incident_immediately():
+def test_wan_failure_opens_incident_after_second_round():
     db = make_db()
     store = make_store(db)
 
@@ -60,11 +64,22 @@ def test_wan_failure_opens_incident_immediately():
     assert status == "WAN_DOWN"
     assert store.status.wan_status == "DOWN"
     assert store.status.tunnel_status == "UP"
+    assert store.status.wan_fail_count == 1
+    assert incident_ids == []
+    assert open_incidents(db, store) == []
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, True)
+    db.commit()
+
+    assert changed is True
+    assert recovered is False
+    assert status == "WAN_DOWN"
+    assert store.status.wan_fail_count == 2
     assert len(incident_ids) == 1
-    assert db.query(Incident).filter(Incident.store_id == store.id, Incident.status == "OPEN").count() == 1
+    assert len(open_incidents(db, store)) == 1
 
 
-def test_both_targets_failed_sets_down_immediately():
+def test_both_targets_failed_sets_down_immediately_but_opens_incident_after_confirmation():
     db = make_db()
     store = make_store(db)
 
@@ -74,16 +89,39 @@ def test_both_targets_failed_sets_down_immediately():
     assert changed is True
     assert recovered is False
     assert status == "DOWN"
-    assert incident_ids
     assert store.status.overall_status == "DOWN"
+    assert incident_ids == []
+    assert open_incidents(db, store) == []
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
+    db.commit()
+
+    assert changed is True
+    assert recovered is False
+    assert status == "DOWN"
+    assert incident_ids
+    assert open_incidents(db, store)[0].incident_type == "DOWN"
 
 
-def test_open_incident_type_updates_immediately():
+def test_open_incident_type_updates_after_new_type_is_confirmed():
     db = make_db()
     store = make_store(db)
 
     update_status_and_incident(db, store, False, True)
+    update_status_and_incident(db, store, False, True)
     db.commit()
+    incident = open_incidents(db, store)[0]
+    assert incident.incident_type == "WAN_DOWN"
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
+    db.commit()
+
+    assert changed is True
+    assert recovered is False
+    assert status == "DOWN"
+    assert incident_ids == []
+    db.refresh(incident)
+    assert incident.incident_type == "WAN_DOWN"
 
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
     db.commit()
@@ -92,7 +130,7 @@ def test_open_incident_type_updates_immediately():
     assert recovered is False
     assert status == "DOWN"
     assert incident_ids
-    incident = db.query(Incident).filter(Incident.status == "OPEN").one()
+    db.refresh(incident)
     assert incident.incident_type == "DOWN"
 
 
@@ -100,6 +138,7 @@ def test_recovery_resolves_immediately_after_successful_round():
     db = make_db()
     store = make_store(db)
 
+    update_status_and_incident(db, store, False, False)
     update_status_and_incident(db, store, False, False)
     db.commit()
     incident = db.query(Incident).filter(Incident.status == "OPEN").one()
@@ -123,6 +162,7 @@ def test_recovery_does_not_notify_if_down_alert_was_never_sent():
     store = make_store(db)
 
     update_status_and_incident(db, store, False, False)
+    update_status_and_incident(db, store, False, False)
     db.commit()
 
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, True, True)
@@ -135,10 +175,84 @@ def test_recovery_does_not_notify_if_down_alert_was_never_sent():
     assert db.query(Incident).filter(Incident.status == "RESOLVED").count() == 1
 
 
+def test_recovery_before_confirmation_does_not_create_or_resolve_incident():
+    db = make_db()
+    store = make_store(db)
+
+    update_status_and_incident(db, store, False, False)
+    db.commit()
+    assert db.query(Incident).count() == 0
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, True, True)
+    db.commit()
+
+    assert changed is True
+    assert status == "UP"
+    assert recovered is True
+    assert incident_ids == []
+    assert db.query(Incident).count() == 0
+
+
+def test_changing_failure_type_resets_confirmation_before_opening_incident():
+    db = make_db()
+    store = make_store(db)
+
+    update_status_and_incident(db, store, False, True)
+    db.commit()
+    assert db.query(Incident).count() == 0
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, True, False)
+    db.commit()
+
+    assert changed is True
+    assert status == "TUNNEL_DOWN"
+    assert recovered is False
+    assert incident_ids == []
+    assert db.query(Incident).count() == 0
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, True, False)
+    db.commit()
+
+    assert changed is True
+    assert status == "TUNNEL_DOWN"
+    assert incident_ids
+    assert open_incidents(db, store)[0].incident_type == "TUNNEL_DOWN"
+
+
+def test_down_requires_both_targets_confirmed():
+    db = make_db()
+    store = make_store(db)
+
+    update_status_and_incident(db, store, False, True)
+    update_status_and_incident(db, store, False, True)
+    db.commit()
+    incident = open_incidents(db, store)[0]
+    assert incident.incident_type == "WAN_DOWN"
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
+    db.commit()
+
+    assert changed is True
+    assert status == "DOWN"
+    assert incident_ids == []
+    db.refresh(incident)
+    assert incident.incident_type == "WAN_DOWN"
+
+    changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, False, False)
+    db.commit()
+
+    assert changed is True
+    assert status == "DOWN"
+    assert incident_ids
+    db.refresh(incident)
+    assert incident.incident_type == "DOWN"
+
+
 def test_wan_only_store_recovers_immediately():
     db = make_db()
     store = make_store(db, ip_tunnel=None)
 
+    update_status_and_incident(db, store, False, None)
     update_status_and_incident(db, store, False, None)
     db.commit()
     incident = db.query(Incident).filter(Incident.status == "OPEN").one()
@@ -158,6 +272,7 @@ def test_tunnel_only_store_recovers_immediately():
     db = make_db()
     store = make_store(db, wan_dns=None)
 
+    update_status_and_incident(db, store, None, False)
     update_status_and_incident(db, store, None, False)
     db.commit()
     incident = db.query(Incident).filter(Incident.status == "OPEN").one()

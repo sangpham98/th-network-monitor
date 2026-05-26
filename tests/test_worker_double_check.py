@@ -44,9 +44,17 @@ async def test_alert_send_does_not_recheck_targets(tmp_path, monkeypatch):
     monkeypatch.setattr(worker.settings, "telegram_bot_token", "token")
     monkeypatch.setattr(worker.settings, "telegram_chat_id", "chat")
 
-    result = await worker._run_once_locked()
+    first_result = await worker._run_once_locked()
+    second_result = await worker._run_once_locked()
 
-    assert result["alerts"] == 1
-    assert result["messages"] == 1
+    assert first_result["alerts"] == 0
+    assert first_result["messages"] == 0
+    assert second_result["alerts"] == 1
+    assert second_result["messages"] == 1
     assert sent_messages
-    assert calls == [("wan", "wan.example", 5), ("tunnel", "10.0.0.1", 5)]
+    assert calls == [
+        ("wan", "wan.example", 5),
+        ("tunnel", "10.0.0.1", 5),
+        ("wan", "wan.example", 5),
+        ("tunnel", "10.0.0.1", 5),
+    ]

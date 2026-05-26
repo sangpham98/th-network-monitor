@@ -32,7 +32,9 @@ Excel inventory
   → cross-process monitor lock
   → batch 50 stores concurrently
   → per store: WAN/DNS 5 packets → IP Tunnel 5 packets
-  → update StoreStatus + open/update/resolve Incident after each batch commit
+  → update StoreStatus after each batch commit
+  → open/update Incident only after 2 confirmed DOWN/WAN_DOWN/TUNNEL_DOWN rounds
+  → resolve Incident immediately after recovery
   → retry unsent alerts + collect due 6h reminders after all batches
   → end-of-round Telegram batching
   → next round starts immediately
@@ -203,7 +205,7 @@ Implemented and verified capabilities:
 - One-command systemd install with dedicated `thnm` service user, runtime directories, virtualenv, config preservation, web service, worker service, logrotate, and `thnm` helper command.
 - Auth-protected FastAPI/Jinja2 web GUI for dashboard, stores, store detail, import, incidents, backups, Telegram test, and manual monitor run.
 - Excel import preview/confirm flow with column normalization, duplicate detection, safe optional-field handling, and SQLite backup before large imports.
-- Periodic monitor worker with cross-process lock, 50-store batches, per-store WAN/DNS then IP Tunnel checks, 5 ping packets per target, one DB status commit after each batch, end-of-round Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
+- Periodic monitor worker with cross-process lock, 50-store batches, per-store WAN/DNS then IP Tunnel checks, 5 ping packets per target, one DB status commit after each batch, 2-round incident confirmation before alerting, end-of-round Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
 - Dashboard/Stores display stored DB status directly, plus `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
 - Manual **Check now** runs `/monitor/run-once`; when submitted from the GUI it redirects back to the current page after completion, while direct API calls still receive JSON.
 - SQLite backup/restore UI and Excel incident export.
