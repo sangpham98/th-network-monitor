@@ -217,4 +217,4 @@ def test_build_store_timelines_clips_incidents_to_current_day(monkeypatch):
     assert segment["status"] == "DOWN"
     assert 70.8 <= segment["left"] <= 70.9
     assert 8.3 <= segment["width"] <= 8.4
-    assert "DOWN 17:00→19:00" == segment["label"]
+    assert segment["label"] == "Status: DOWN | Down: 2026-05-05 17:00 | Up/End: 2026-05-05 19:00 | Duration: 2h 0m"

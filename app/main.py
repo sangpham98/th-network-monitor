@@ -132,6 +132,35 @@ def _parse_datetime_local(value: str, timezone: ZoneInfo) -> datetime | None:
     return parsed.astimezone(timezone)
 
 
+def timeline_ticks(range_start: datetime, range_end: datetime) -> list[str]:
+    total_seconds = (range_end - range_start).total_seconds()
+    if total_seconds <= 3600:
+        step = timedelta(minutes=5 if total_seconds <= 1800 else 10)
+        fmt = "%H:%M"
+    elif total_seconds <= 12 * 3600:
+        step = timedelta(hours=1)
+        fmt = "%H:%M"
+    elif total_seconds <= 24 * 3600:
+        step = timedelta(hours=3)
+        fmt = "%H:%M"
+    elif total_seconds <= 7 * 24 * 3600:
+        step = timedelta(hours=12)
+        fmt = "%m-%d %H:%M"
+    else:
+        step = timedelta(days=2)
+        fmt = "%m-%d %H:%M"
+
+    ticks = []
+    current = range_start
+    while current < range_end and len(ticks) < 16:
+        ticks.append(current.strftime(fmt))
+        current += step
+    end_label = range_end.strftime(fmt)
+    if not ticks or ticks[-1] != end_label:
+        ticks.append(end_label)
+    return ticks
+
+
 def dashboard_time_filter(
     time_mode: str = "quick",
     quick_range: str = "1d",
@@ -157,11 +186,7 @@ def dashboard_time_filter(
         range_end = local_now
         range_start = local_now - DASHBOARD_QUICK_RANGES[selected_range][1]
 
-    total_seconds = (range_end - range_start).total_seconds()
-    ticks = [
-        (range_start + timedelta(seconds=total_seconds * ratio)).strftime("%H:%M")
-        for ratio in (0, 0.25, 0.5, 0.75, 1)
-    ]
+    ticks = timeline_ticks(range_start, range_end)
     return {
         "mode": mode,
         "quick_range": selected_range,
@@ -382,7 +407,17 @@ def _daily_timeline_window(now: datetime | None = None) -> tuple[datetime, datet
 
 
 def _timeline_label(start: datetime, end: datetime, status: str) -> str:
-    return f"{status} {start.strftime('%H:%M')}→{end.strftime('%H:%M')}"
+    duration_minutes = max(1, int((end - start).total_seconds() // 60))
+    hours, minutes = divmod(duration_minutes, 60)
+    duration = f"{hours}h {minutes}m" if hours else f"{minutes}m"
+    return " | ".join(
+        [
+            f"Status: {status}",
+            f"Down: {start.strftime('%Y-%m-%d %H:%M')}",
+            f"Up/End: {end.strftime('%Y-%m-%d %H:%M')}",
+            f"Duration: {duration}",
+        ]
+    )
 
 
 def build_store_timelines(
