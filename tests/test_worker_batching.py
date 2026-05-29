@@ -87,12 +87,12 @@ async def test_run_once_pings_store_targets_then_commits_batch(tmp_path, monkeyp
     assert result["checked"] == 3
     assert events == ["commit"]
     assert calls == [
-        ("wan", "wan1.example", worker.settings.ping_timeout_seconds, 5),
-        ("tunnel", "10.0.0.1", worker.settings.ping_timeout_seconds, 5),
-        ("wan", "wan2.example", worker.settings.ping_timeout_seconds, 5),
-        ("tunnel", "10.0.0.2", worker.settings.ping_timeout_seconds, 5),
-        ("wan", "wan3.example", worker.settings.ping_timeout_seconds, 5),
-        ("tunnel", "10.0.0.3", worker.settings.ping_timeout_seconds, 5),
+        ("wan", "wan1.example", worker.settings.ping_timeout_seconds, 10),
+        ("tunnel", "10.0.0.1", worker.settings.ping_timeout_seconds, 10),
+        ("wan", "wan2.example", worker.settings.ping_timeout_seconds, 10),
+        ("tunnel", "10.0.0.2", worker.settings.ping_timeout_seconds, 10),
+        ("wan", "wan3.example", worker.settings.ping_timeout_seconds, 10),
+        ("tunnel", "10.0.0.3", worker.settings.ping_timeout_seconds, 10),
     ]
 
     db = session_factory()
@@ -164,7 +164,10 @@ async def test_run_once_commits_each_50_store_batch_before_telegram(tmp_path, mo
     monkeypatch.setattr(worker, "STATUS_PATH", tmp_path / "monitor_status.json")
     monkeypatch.setattr(worker, "check_wan", check_wan)
     monkeypatch.setattr(worker, "ping_host", ping_host)
+    slots = iter([None, "09:00"])
+
     monkeypatch.setattr(worker, "send_telegram", send_telegram)
+    monkeypatch.setattr(worker, "_due_telegram_summary_slot", lambda: next(slots))
     monkeypatch.setattr(worker.settings, "telegram_bot_token", "token")
     monkeypatch.setattr(worker.settings, "telegram_chat_id", "chat")
 
@@ -189,7 +192,7 @@ async def test_run_once_commits_each_50_store_batch_before_telegram(tmp_path, mo
     assert len(sent_messages) == 1
     assert "📌 Tổng affected: <b>51</b>" in sent_messages[0]
     assert len(ping_calls) == 204
-    assert all(call[2] == 5 for call in ping_calls)
+    assert all(call[2] == 10 for call in ping_calls)
 
     db = session_factory()
     assert db.query(Incident).count() == 51

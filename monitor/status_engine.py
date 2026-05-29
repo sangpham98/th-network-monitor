@@ -91,6 +91,36 @@ def format_reminder_summary(events: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def format_current_incidents_summary(events: list[dict], slot_label: str) -> str:
+    if not events:
+        return "\n".join([
+            "<b>✅ TH NETWORK OK</b>",
+            f"🕘 Slot: <b>{_display(slot_label)}</b>",
+            "Không có store đang incident.",
+        ])
+
+    lines = [
+        "<b>🚨 TH NETWORK INCIDENT SUMMARY</b>",
+        f"🕘 Slot: <b>{_display(slot_label)}</b>",
+        f"📌 Tổng affected: <b>{len(events)}</b>",
+        "",
+        "📊 Theo status:",
+    ]
+    _append_counts(lines, _count_by(events, "status"))
+    lines.extend(["", "🌏 Theo miền:"])
+    _append_counts(lines, _count_by(events, "region"))
+    lines.extend(["", "🗺️ Theo khu vực:"])
+    _append_counts(lines, _count_by(events, "area"))
+    lines.extend(["", "🏪 Stores:"])
+    for event in events[:30]:
+        lines.append(
+            f"• <b>{_display(event.get('store_code'))}</b> - {_display(event.get('status'))} - {_display(event.get('area'))}"
+        )
+    if len(events) > 30:
+        lines.append(f"…and {len(events) - 30} more")
+    return "\n".join(lines)
+
+
 def format_major_incident(events: list[dict]) -> str:
     lines = [
         "<b>🔥 TH NETWORK MAJOR INCIDENT</b>",
@@ -240,7 +270,7 @@ def update_status_and_incident(
                 open_incident.detail = f"Changed from {old_overall} to {new_overall}"
                 changed = True
 
-            if changed and not open_incident.alert_sent:
+            if changed:
                 incident_ids.append(open_incident.id)
 
     elif new_overall == "UP" and old_overall != "UP":
@@ -251,8 +281,7 @@ def update_status_and_incident(
             incident.status = "RESOLVED"
             incident.ended_at = now
             incident.duration_seconds = int((now - incident.started_at).total_seconds())
-            if incident.alert_sent and not incident.recovery_sent:
-                incident_ids.append(incident.id)
+            incident_ids.append(incident.id)
         changed = True
         recovered = True
     elif new_overall == "UNKNOWN" and old_overall != "UNKNOWN":

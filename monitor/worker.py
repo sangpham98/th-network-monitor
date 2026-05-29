@@ -1,10 +1,10 @@
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from filelock import Timeout, FileLock
-from sqlalchemy import or_
 
 from alerts.telegram import send_telegram
 from app.config import settings
@@ -12,19 +12,13 @@ from app.database import SessionLocal, init_db
 from app.logging_config import configure_logging
 from app.models import Incident, Store, StoreStatus
 from monitor.checker import check_wan, ping_host
-from monitor.status_engine import (
-    format_alert_event,
-    format_alert_summary,
-    format_major_incident,
-    format_reminder_event,
-    format_reminder_summary,
-    update_status_and_incident,
-)
+from monitor.status_engine import format_current_incidents_summary, update_status_and_incident
 
 LOCK_PATH = settings.data_dir / "monitor.lock"
 STATUS_PATH = settings.data_dir / "monitor_status.json"
-PING_PACKET_COUNT = 5
+PING_PACKET_COUNT = 10
 STORE_BATCH_SIZE = 50
+TELEGRAM_SUMMARY_SLOTS = ("09:00", "14:00")
 logger = logging.getLogger(__name__)
 INVALID_TARGETS = {"0", "0.0.0.0", "-", "n/a", "na", "none", "null"}
 
@@ -40,9 +34,11 @@ def _chunks(items: list[tuple[int, str | None, str | None]], size: int):
 
 
 def _write_monitor_status(payload: dict):
+    existing = read_monitor_status()
+    existing.update(payload)
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = STATUS_PATH.with_suffix(".tmp")
-    tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+    tmp_path.write_text(json.dumps(existing), encoding="utf-8")
     tmp_path.replace(STATUS_PATH)
 
 
@@ -69,32 +65,32 @@ async def check_store(store_id: int, wan_dns: str | None, ip_tunnel: str | None)
     return store_id, wan_ok, tunnel_ok
 
 
-def _mark_notification_sent(incident_ids: list[int], kind: str):
-    if not incident_ids:
-        return
-
-    sent_at = datetime.now(UTC).replace(tzinfo=None)
-    db = SessionLocal()
+def _local_now() -> datetime:
     try:
-        for incident in db.query(Incident).filter(Incident.id.in_(incident_ids)).all():
-            if kind == "recovery":
-                incident.recovery_sent = True
-                last_alert_at = incident.ended_at
-            elif kind == "reminder":
-                incident.last_reminder_at = sent_at
-                incident.reminder_count = (incident.reminder_count or 0) + 1
-                last_alert_at = sent_at
-            else:
-                incident.alert_sent = True
-                incident.alert_sent_at = sent_at
-                last_alert_at = incident.started_at
+        timezone = ZoneInfo(settings.timezone)
+    except ZoneInfoNotFoundError:
+        timezone = ZoneInfo("UTC")
+    return datetime.now(timezone)
 
-            status = db.query(StoreStatus).filter(StoreStatus.store_id == incident.store_id).first()
-            if status:
-                status.last_alert_at = last_alert_at
-        db.commit()
-    finally:
-        db.close()
+
+def _due_telegram_summary_slot(now: datetime | None = None) -> str | None:
+    now = now or _local_now()
+    sent_slots = read_monitor_status().get("telegram_summary_sent_slots") or {}
+    for slot in TELEGRAM_SUMMARY_SLOTS:
+        hour, minute = (int(part) for part in slot.split(":"))
+        slot_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        slot_key = f"{now.date().isoformat()}T{slot}"
+        if now >= slot_time and not sent_slots.get(slot_key):
+            return slot
+    return None
+
+
+def _mark_telegram_summary_slot_sent(slot: str, now: datetime | None = None):
+    now = now or _local_now()
+    status = read_monitor_status()
+    sent_slots = status.get("telegram_summary_sent_slots") or {}
+    sent_slots[f"{now.date().isoformat()}T{slot}"] = True
+    _write_monitor_status({"telegram_summary_sent_slots": sent_slots})
 
 
 def _build_alert_event(
@@ -125,162 +121,40 @@ def _build_alert_event(
     return event
 
 
-def _flatten_incident_ids(events: list[dict]) -> list[int]:
-    incident_ids: list[int] = []
-    for event in events:
-        incident_ids.extend(event["incident_ids"])
-    return incident_ids
-
-
-def _pending_open_alert_events(db, excluded_incident_ids: set[int]) -> list[dict]:
+def _current_open_incident_events(db) -> list[dict]:
     query = (
         db.query(Incident, Store)
         .join(Store, Store.id == Incident.store_id)
-        .filter(
-            Incident.status == "OPEN",
-            or_(Incident.alert_sent.is_(False), Incident.alert_sent.is_(None)),
-            Store.enabled.is_(True),
-        )
+        .filter(Incident.status == "OPEN", Store.enabled.is_(True))
+        .order_by(Incident.started_at.asc(), Store.store_code.asc())
     )
-    if excluded_incident_ids:
-        query = query.filter(Incident.id.notin_(excluded_incident_ids))
-
     return [
-        _build_alert_event(store, incident.incident_type, False, [incident.id], kind="alert", incident=incident)
-        for incident, store in query.order_by(Incident.started_at.asc()).all()
+        _build_alert_event(store, incident.incident_type, False, [incident.id], kind="summary", incident=incident)
+        for incident, store in query.all()
     ]
 
 
-def _pending_reminder_events(db, excluded_incident_ids: set[int], now: datetime) -> list[dict]:
-    interval_seconds = settings.telegram_reminder_interval_seconds
-    if interval_seconds <= 0:
-        return []
-
-    due_before = now - timedelta(seconds=interval_seconds)
-    query = (
-        db.query(Incident, Store)
-        .join(Store, Store.id == Incident.store_id)
-        .filter(
-            Incident.status == "OPEN",
-            Incident.alert_sent.is_(True),
-            Store.enabled.is_(True),
-        )
-    )
-    if excluded_incident_ids:
-        query = query.filter(Incident.id.notin_(excluded_incident_ids))
-
-    events = []
-    for incident, store in query.order_by(Incident.started_at.asc()).all():
-        anchor = incident.last_reminder_at or incident.alert_sent_at
-        if anchor is None or anchor > due_before:
-            continue
-        events.append(_build_alert_event(store, incident.incident_type, False, [incident.id], kind="reminder", incident=incident))
-    return events
-
-
-def build_telegram_batches(events: list[dict]) -> list[dict]:
-    alert_events = [event for event in events if event.get("kind") == "alert" or (not event.get("kind") and not event["recovered"])]
-    reminder_events = [event for event in events if event.get("kind") == "reminder"]
-    recovery_events = [event for event in events if event.get("kind") == "recovery" or (not event.get("kind") and event["recovered"])]
-    batches: list[dict] = []
-
-    if 1 <= len(alert_events) <= 5:
-        for event in alert_events:
-            batches.append(
-                {
-                    "message": format_alert_event(event, recovered=False),
-                    "incident_ids": event["incident_ids"],
-                    "kind": "alert",
-                    "recovered": False,
-                }
-            )
-    elif 6 <= len(alert_events) <= 30:
-        batches.append(
-            {
-                "message": format_alert_summary(alert_events, recovered=False),
-                "incident_ids": _flatten_incident_ids(alert_events),
-                "kind": "alert",
-                "recovered": False,
-            }
-        )
-    elif len(alert_events) > 30:
-        batches.append(
-            {
-                "message": format_major_incident(alert_events),
-                "incident_ids": _flatten_incident_ids(alert_events),
-                "kind": "alert",
-                "recovered": False,
-            }
-        )
-
-    if 1 <= len(reminder_events) <= 5:
-        for event in reminder_events:
-            batches.append(
-                {
-                    "message": format_reminder_event(event),
-                    "incident_ids": event["incident_ids"],
-                    "kind": "reminder",
-                    "recovered": False,
-                }
-            )
-    elif len(reminder_events) > 5:
-        batches.append(
-            {
-                "message": format_reminder_summary(reminder_events),
-                "incident_ids": _flatten_incident_ids(reminder_events),
-                "kind": "reminder",
-                "recovered": False,
-            }
-        )
-
-    if 1 <= len(recovery_events) <= 5:
-        for event in recovery_events:
-            batches.append(
-                {
-                    "message": format_alert_event(event, recovered=True),
-                    "incident_ids": event["incident_ids"],
-                    "kind": "recovery",
-                    "recovered": True,
-                }
-            )
-    elif len(recovery_events) > 5:
-        batches.append(
-            {
-                "message": format_alert_summary(recovery_events, recovered=True),
-                "incident_ids": _flatten_incident_ids(recovery_events),
-                "kind": "recovery",
-                "recovered": True,
-            }
-        )
-
-    return batches
-
-
-def _apply_batch_results(results: list[tuple[int, bool | None, bool | None]]) -> list[dict]:
+def _apply_batch_results(results: list[tuple[int, bool | None, bool | None]]):
     db = SessionLocal()
     try:
         store_ids = [store_id for store_id, _wan_ok, _tunnel_ok in results]
         stores = db.query(Store).filter(Store.id.in_(store_ids), Store.enabled.is_(True)).all() if store_ids else []
         store_by_id = {store.id: store for store in stores}
-        alert_events = []
         try:
             for store_id, wan_ok, tunnel_ok in results:
                 store = store_by_id.get(store_id)
                 if store is None:
                     continue
-                changed, status, _old, recovered, incident_ids = update_status_and_incident(
+                update_status_and_incident(
                     db=db,
                     store=store,
                     wan_ok=wan_ok,
                     tunnel_ok=tunnel_ok,
                 )
-                if changed and incident_ids:
-                    alert_events.append(_build_alert_event(store, status, recovered, incident_ids))
             db.commit()
         except Exception:
             db.rollback()
             raise
-        return alert_events
     finally:
         db.close()
 
@@ -309,7 +183,6 @@ async def _run_once_locked():
             "updated_at": datetime.now(UTC).isoformat(),
         }
     )
-    alert_events = []
     checked = 0
     for batch_number, batch in enumerate(_chunks(store_targets, STORE_BATCH_SIZE), start=1):
         _write_monitor_status(
@@ -326,7 +199,7 @@ async def _run_once_locked():
             *(check_store(store_id, wan_dns, ip_tunnel) for store_id, wan_dns, ip_tunnel in batch)
         )
         checked += len(results)
-        alert_events.extend(_apply_batch_results(results))
+        _apply_batch_results(results)
         _write_monitor_status(
             {
                 "running": True,
@@ -340,46 +213,34 @@ async def _run_once_locked():
 
     db = SessionLocal()
     try:
-        if settings.telegram_bot_token and settings.telegram_chat_id:
-            existing_incident_ids = set(_flatten_incident_ids(alert_events))
-            alert_events.extend(_pending_open_alert_events(db, existing_incident_ids))
-            existing_incident_ids = set(_flatten_incident_ids(alert_events))
-            alert_events.extend(_pending_reminder_events(db, existing_incident_ids, datetime.now(UTC).replace(tzinfo=None)))
-        telegram_batches = build_telegram_batches(alert_events)
+        summary_slot = _due_telegram_summary_slot() if settings.telegram_bot_token and settings.telegram_chat_id else None
+        summary_events = []
         telegram_sent = 0
         telegram_failed = 0
         mark_failed = 0
-        for batch in telegram_batches:
-            incident_ids = batch["incident_ids"]
-            kind = batch["kind"]
-            sent = await send_telegram(batch["message"])
+        if summary_slot:
+            summary_events = _current_open_incident_events(db)
+            sent = await send_telegram(format_current_incidents_summary(summary_events, summary_slot))
             if sent:
-                telegram_sent += 1
+                telegram_sent = 1
                 try:
-                    _mark_notification_sent(incident_ids, kind)
+                    _mark_telegram_summary_slot_sent(summary_slot)
                 except Exception:
-                    mark_failed += 1
-                    logger.exception(
-                        "telegram sent but failed to mark notification sent ids=%s kind=%s",
-                        incident_ids,
-                        kind,
-                    )
+                    mark_failed = 1
+                    logger.exception("telegram summary sent but failed to mark slot sent slot=%s", summary_slot)
             else:
-                telegram_failed += 1
-                logger.warning(
-                    "telegram send failed; sent flags kept false ids=%s kind=%s",
-                    incident_ids,
-                    kind,
-                )
+                telegram_failed = 1
+                logger.warning("telegram summary send failed; slot kept pending slot=%s", summary_slot)
 
         result = {
             "status": "ok",
             "checked": checked,
-            "alerts": len(alert_events),
-            "messages": len(telegram_batches),
+            "alerts": len(summary_events),
+            "messages": 1 if summary_slot else 0,
             "sent": telegram_sent,
             "send_failed": telegram_failed,
             "mark_failed": mark_failed,
+            "summary_slot": summary_slot,
         }
         _write_monitor_status(
             {

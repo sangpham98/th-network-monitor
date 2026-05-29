@@ -20,6 +20,7 @@
       {% set display_status = display_overall_status(store) %}
       {% set wan_status = display_wan_status(store) %}
       {% set tunnel_status = display_tunnel_status(store) %}
+      {% set timeline_segments = store_timelines.get(store.id, []) if store_timelines is defined else [] %}
       <tr>
         <td><a href="/stores/{{ store.id }}">{{ store.store_code }}</a></td>
         <td>{{ store.pc_name or '-' }}</td>
@@ -35,6 +36,22 @@
         <td class="actions"><a class="btn" href="/stores/{{ store.id }}/edit">Sửa</a> <form method="post" action="/stores/{{ store.id }}/delete" onsubmit="return confirm('Xóa store {{ store.store_code }}?')"><button class="btn btn-danger" type="submit">Xóa</button></form></td>
         {% endif %}
       </tr>
+      {% if show_timeline|default(true) %}
+      <tr class="downtime-row">
+        <td class="downtime-cell" colspan="{{ 11 if show_delete|default(false) else 10 }}">
+          <div class="downtime-header">
+            <span>Stability History</span>
+            <span>00:00 → 24:00</span>
+          </div>
+          <div class="downtime-track" aria-label="Stability history for {{ store.store_code }}">
+            {% for segment in timeline_segments %}
+            <span class="downtime-segment status-{{ segment.status }}" style="left: {{ segment.left }}%; width: {{ segment.width }}%;" title="{{ segment.label }}"></span>
+            {% endfor %}
+          </div>
+          <div class="downtime-ticks"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+        </td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>

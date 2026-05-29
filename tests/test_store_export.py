@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 
 from fastapi.testclient import TestClient
@@ -10,8 +10,8 @@ from sqlalchemy.pool import StaticPool
 from app import auth
 from app.config import settings
 from app.database import Base, get_db
-from app.main import app
-from app.models import Store, StoreStatus
+from app.main import app, build_store_timelines
+from app.models import Incident, Store, StoreStatus
 
 
 def utc_now() -> datetime:
@@ -182,5 +182,39 @@ def test_stores_page_has_export_link_and_no_check_now(monkeypatch):
     assert response.status_code == 200
     assert "/stores/export?q=PC001&amp;status=TUNNEL_DOWN" in response.text
     assert "Export Excel" in response.text
+    assert "Stability History" in response.text
+    assert "00:00 → 24:00" in response.text
     assert "Check now" not in response.text
     assert 'action="/monitor/run-once"' not in response.text
+
+
+def test_build_store_timelines_clips_incidents_to_current_day(monkeypatch):
+    monkeypatch.setattr(settings, "timezone", "Asia/Ho_Chi_Minh")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    db = SessionLocal()
+    store = Store(store_code="70000123", pc_name="PC001")
+    db.add(store)
+    db.commit()
+    db.refresh(store)
+    now = datetime(2026, 5, 5, 12, 0, 0, tzinfo=UTC)
+    db.add(
+        Incident(
+            store_id=store.id,
+            incident_type="DOWN",
+            status="OPEN",
+            started_at=(now - timedelta(hours=2)).replace(tzinfo=None),
+        )
+    )
+    db.commit()
+
+    timelines = build_store_timelines(db, [store], now)
+
+    clear_overrides()
+    assert len(timelines[store.id]) == 1
+    segment = timelines[store.id][0]
+    assert segment["status"] == "DOWN"
+    assert 70.8 <= segment["left"] <= 70.9
+    assert 8.3 <= segment["width"] <= 8.4
+    assert "DOWN 17:00→19:00" == segment["label"]

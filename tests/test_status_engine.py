@@ -157,7 +157,7 @@ def test_recovery_resolves_immediately_after_successful_round():
     assert resolved.duration_seconds is not None
 
 
-def test_recovery_does_not_notify_if_down_alert_was_never_sent():
+def test_recovery_returns_resolved_incident_ids_without_alert_sent_gate():
     db = make_db()
     store = make_store(db)
 
@@ -165,13 +165,14 @@ def test_recovery_does_not_notify_if_down_alert_was_never_sent():
     update_status_and_incident(db, store, False, False)
     db.commit()
 
+    incident = db.query(Incident).filter(Incident.status == "OPEN").one()
     changed, status, _old, recovered, incident_ids = update_status_and_incident(db, store, True, True)
     db.commit()
 
     assert changed is True
     assert status == "UP"
     assert recovered is True
-    assert incident_ids == []
+    assert incident_ids == [incident.id]
     assert db.query(Incident).filter(Incident.status == "RESOLVED").count() == 1
 
 

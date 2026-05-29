@@ -9,6 +9,51 @@
   <div class="card metric-card"><div class="metric-label">{{ s }}</div><div class="num status-{{s}}">{{ status_counts.get(s,0) }}</div></div>
   {% endfor %}
 </div>
-<h2>100 cửa hàng đầu</h2>
-{% include 'store_table.html' %}
+
+<section class="card dashboard-filter-card">
+  <form class="toolbar filter-bar dashboard-time-filter" method="get">
+    <label class="field compact-field">
+      <span>Time mode</span>
+      <select name="time_mode">
+        <option value="quick" {% if time_filter.mode == 'quick' %}selected{% endif %}>Quick ranges</option>
+        <option value="absolute" {% if time_filter.mode == 'absolute' %}selected{% endif %}>Absolute time range</option>
+      </select>
+    </label>
+    <label class="field compact-field">
+      <span>Quick ranges</span>
+      <select name="quick_range">
+        {% for key, value in quick_ranges.items() %}
+        <option value="{{ key }}" {% if time_filter.quick_range == key %}selected{% endif %}>{{ value[0] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field compact-field">
+      <span>From</span>
+      <input type="datetime-local" name="start" value="{{ time_filter.start_value }}">
+    </label>
+    <label class="field compact-field">
+      <span>To</span>
+      <input type="datetime-local" name="end" value="{{ time_filter.end_value }}">
+    </label>
+    <button class="btn">Apply</button>
+  </form>
+  <p class="hint">Range: {{ time_filter.label }}</p>
+</section>
+
+{% for section in incident_sections %}
+<section class="card dashboard-incident-section">
+  <div class="section-heading">
+    <h2>{{ section.title }}</h2>
+    <span class="badge status-{{ section.type }}">{{ section.stores|length }}</span>
+  </div>
+  {% if section.stores %}
+    {% set stores = section.stores %}
+    {% set show_delete = false %}
+    {% set show_timeline = true %}
+    {% include 'store_table.html' %}
+  {% else %}
+    <p class="hint">Không có store trong khoảng thời gian này.</p>
+  {% endif %}
+</section>
+{% endfor %}
 {% endblock %}

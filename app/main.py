@@ -1,7 +1,7 @@
 import secrets
 import shutil
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -105,6 +106,101 @@ def monitor_context(db: Session) -> dict:
         "latest_check_at": latest[0] if latest else None,
         "auto_refresh_seconds": settings.monitor_interval_seconds,
     }
+
+
+DASHBOARD_QUICK_RANGES = {
+    "30m": ("30 phút", timedelta(minutes=30)),
+    "1h": ("1 hour", timedelta(hours=1)),
+    "12h": ("12 hours", timedelta(hours=12)),
+    "1d": ("1 day", timedelta(days=1)),
+    "7d": ("7 day", timedelta(days=7)),
+    "1w": ("1 week", timedelta(weeks=1)),
+    "1mo": ("1 month", timedelta(days=30)),
+}
+DASHBOARD_INCIDENT_TYPES = ("DOWN", "TUNNEL_DOWN", "WAN_DOWN")
+
+
+def _parse_datetime_local(value: str, timezone: ZoneInfo) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone)
+    return parsed.astimezone(timezone)
+
+
+def dashboard_time_filter(
+    time_mode: str = "quick",
+    quick_range: str = "1d",
+    start: str = "",
+    end: str = "",
+    now: datetime | None = None,
+) -> dict:
+    timezone = _timezone(settings.timezone)
+    local_now = now or datetime.now(timezone)
+    if local_now.tzinfo is None:
+        local_now = local_now.replace(tzinfo=timezone)
+    local_now = local_now.astimezone(timezone)
+    selected_range = quick_range if quick_range in DASHBOARD_QUICK_RANGES else "1d"
+    mode = "absolute" if time_mode == "absolute" else "quick"
+
+    absolute_start = _parse_datetime_local(start, timezone)
+    absolute_end = _parse_datetime_local(end, timezone)
+    if mode == "absolute" and absolute_start and absolute_end and absolute_end > absolute_start:
+        range_start = absolute_start
+        range_end = absolute_end
+    else:
+        mode = "quick"
+        range_end = local_now
+        range_start = local_now - DASHBOARD_QUICK_RANGES[selected_range][1]
+
+    return {
+        "mode": mode,
+        "quick_range": selected_range,
+        "start": range_start,
+        "end": range_end,
+        "start_value": range_start.strftime("%Y-%m-%dT%H:%M"),
+        "end_value": range_end.strftime("%Y-%m-%dT%H:%M"),
+        "label": f"{range_start.strftime('%Y-%m-%d %H:%M')} → {range_end.strftime('%Y-%m-%d %H:%M')}",
+        "start_utc": range_start.astimezone(UTC).replace(tzinfo=None),
+        "end_utc": range_end.astimezone(UTC).replace(tzinfo=None),
+    }
+
+
+def dashboard_incident_stores(db: Session, incident_type: str, range_start: datetime, range_end: datetime) -> list[Store]:
+    rows = (
+        db.query(Store)
+        .join(Incident, Incident.store_id == Store.id)
+        .filter(
+            Incident.incident_type == incident_type,
+            Incident.started_at < range_end,
+            or_(Incident.ended_at.is_(None), Incident.ended_at > range_start),
+        )
+        .order_by(Store.store_code)
+        .all()
+    )
+    seen = set()
+    stores = []
+    for store in rows:
+        if store.id in seen:
+            continue
+        seen.add(store.id)
+        stores.append(store)
+    return stores
+
+
+def build_dashboard_incident_sections(db: Session, time_filter: dict) -> list[dict]:
+    return [
+        {
+            "type": incident_type,
+            "title": f"Store {incident_type}",
+            "stores": dashboard_incident_stores(db, incident_type, time_filter["start_utc"], time_filter["end_utc"]),
+        }
+        for incident_type in DASHBOARD_INCIDENT_TYPES
+    ]
 
 
 def _safe_redirect_path(value: str) -> str:
@@ -203,20 +299,42 @@ def logout():
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, db: Session = Depends(get_db), current_user: str = Depends(require_auth)):
+def dashboard(
+    request: Request,
+    time_mode: str = "quick",
+    quick_range: str = "1d",
+    start: str = "",
+    end: str = "",
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_auth),
+):
     total = db.query(Store).count()
     all_stores = db.query(Store).outerjoin(StoreStatus).order_by(Store.store_code).all()
     status_counts: dict[str, int] = {}
     for store in all_stores:
         display_status = display_overall_status(store)
         status_counts[display_status] = status_counts.get(display_status, 0) + 1
+    time_filter = dashboard_time_filter(time_mode, quick_range, start, end)
+    incident_sections = build_dashboard_incident_sections(db, time_filter)
+    timeline_stores = []
+    seen_store_ids = set()
+    for section in incident_sections:
+        for store in section["stores"]:
+            if store.id in seen_store_ids:
+                continue
+            seen_store_ids.add(store.id)
+            timeline_stores.append(store)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
             "total": total,
             "status_counts": status_counts,
-            "stores": all_stores[:100],
+            "time_filter": time_filter,
+            "quick_ranges": DASHBOARD_QUICK_RANGES,
+            "incident_sections": incident_sections,
+            "store_timelines": build_store_timelines(db, timeline_stores),
+            "show_timeline": True,
             "current_user": current_user,
             **monitor_context(db),
         },
@@ -240,15 +358,74 @@ def _store_report_rows(stores: list[Store]) -> list[dict]:
     return [{header: getattr(store, field) for header, field in STORE_EXCEL_COLUMNS} for store in stores]
 
 
+def _daily_timeline_window(now: datetime | None = None) -> tuple[datetime, datetime, datetime]:
+    timezone = _timezone(settings.timezone)
+    local_now = now or datetime.now(timezone)
+    if local_now.tzinfo is None:
+        local_now = local_now.replace(tzinfo=timezone)
+    local_now = local_now.astimezone(timezone)
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_now, day_start, day_start + timedelta(days=1)
+
+
+def _timeline_label(start: datetime, end: datetime, status: str) -> str:
+    return f"{status} {start.strftime('%H:%M')}→{end.strftime('%H:%M')}"
+
+
+def build_store_timelines(db: Session, stores: list[Store], now: datetime | None = None) -> dict[int, list[dict]]:
+    store_ids = [store.id for store in stores]
+    if not store_ids:
+        return {}
+
+    local_now, day_start, day_end = _daily_timeline_window(now)
+    day_start_utc = day_start.astimezone(UTC).replace(tzinfo=None)
+    day_end_utc = day_end.astimezone(UTC).replace(tzinfo=None)
+    local_now_utc = local_now.astimezone(UTC).replace(tzinfo=None)
+    incidents = (
+        db.query(Incident)
+        .filter(
+            Incident.store_id.in_(store_ids),
+            Incident.started_at < day_end_utc,
+            or_(Incident.ended_at.is_(None), Incident.ended_at > day_start_utc),
+        )
+        .order_by(Incident.started_at.asc())
+        .all()
+    )
+    total_seconds = (day_end - day_start).total_seconds()
+    timelines = {store_id: [] for store_id in store_ids}
+    timezone = _timezone(settings.timezone)
+    for incident in incidents:
+        started_at = incident.started_at.replace(tzinfo=UTC).astimezone(timezone)
+        raw_end = incident.ended_at or local_now_utc
+        ended_at = raw_end.replace(tzinfo=UTC).astimezone(timezone)
+        segment_start = max(started_at, day_start)
+        segment_end = min(ended_at, day_end)
+        if segment_end <= segment_start:
+            continue
+        left = ((segment_start - day_start).total_seconds() / total_seconds) * 100
+        width = ((segment_end - segment_start).total_seconds() / total_seconds) * 100
+        timelines[incident.store_id].append(
+            {
+                "left": round(left, 3),
+                "width": round(width, 3),
+                "status": incident.incident_type,
+                "label": _timeline_label(segment_start, segment_end, incident.incident_type),
+            }
+        )
+    return timelines
+
+
 @app.get("/stores", response_class=HTMLResponse)
 def stores(request: Request, q: str = "", status: str = "", db: Session = Depends(get_db), current_user: str = Depends(require_auth)):
     rows = _store_rows(db, q, status)
+    visible_stores = rows[:1000]
     filtered_count = len(rows)
     return templates.TemplateResponse(
         request,
         "stores.html",
         {
-            "stores": rows[:1000],
+            "stores": visible_stores,
+            "store_timelines": build_store_timelines(db, visible_stores),
             "filtered_count": filtered_count,
             "q": q,
             "status": status,

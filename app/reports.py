@@ -25,8 +25,6 @@ def build_incident_report(rows) -> bytes:
                 "Started At": incident.started_at,
                 "Ended At": incident.ended_at,
                 "Duration Seconds": incident.duration_seconds,
-                "Alert Sent": incident.alert_sent,
-                "Recovery Sent": incident.recovery_sent,
                 "Detail": incident.detail,
             }
         )

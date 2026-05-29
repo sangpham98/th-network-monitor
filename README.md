@@ -31,12 +31,12 @@ Excel inventory
   → monitor.worker hoặc /monitor/run-once
   → cross-process monitor lock
   → batch 50 stores concurrently
-  → per store: WAN/DNS 5 packets → IP Tunnel 5 packets
+  → per store: WAN/DNS 10 packets → IP Tunnel 10 packets
   → update StoreStatus after each batch commit
   → open/update Incident only after 2 confirmed DOWN/WAN_DOWN/TUNNEL_DOWN rounds
   → resolve Incident immediately after recovery
-  → retry unsent alerts + collect due 6h reminders after all batches
-  → end-of-round Telegram batching
+  → if local time reached 09:00/14:00, send current OPEN incident Telegram summary
+  → send OK heartbeat when no store is in incident
   → next round starts immediately
   → Dashboard / Stores / Incidents GUI
 ```
@@ -205,7 +205,7 @@ Implemented and verified capabilities:
 - One-command systemd install with dedicated `thnm` service user, runtime directories, virtualenv, config preservation, web service, worker service, logrotate, and `thnm` helper command.
 - Auth-protected FastAPI/Jinja2 web GUI for dashboard, stores, store detail, import, incidents, backups, Telegram test, and manual monitor run.
 - Excel import preview/confirm flow with column normalization, duplicate detection, safe optional-field handling, and SQLite backup before large imports.
-- Periodic monitor worker with cross-process lock, 50-store batches, per-store WAN/DNS then IP Tunnel checks, 5 ping packets per target, one DB status commit after each batch, 2-round incident confirmation before alerting, end-of-round Telegram alert/recovery batching, and 6-hour unresolved-incident reminders.
+- Periodic monitor worker with cross-process lock, 50-store batches, per-store WAN/DNS then IP Tunnel checks, 10 ping packets per target, one DB status commit after each batch, 2-round incident confirmation, and Telegram summaries of current OPEN incidents at 09:00/14:00 local time.
 - Dashboard/Stores display stored DB status directly, plus `Last Check` from the database in configured local timezone; pages refresh on request, not realtime websocket polling.
 - Manual **Check now** runs `/monitor/run-once`; when submitted from the GUI it redirects back to the current page after completion, while direct API calls still receive JSON.
 - SQLite backup/restore UI and Excel incident export.
@@ -317,20 +317,19 @@ Rules:
 - Each monitor round checks stores ordered by ID in batches of 50.
 - Stores in the same batch run concurrently.
 - Each store is checked in this order: WAN/DNS first, then IP Tunnel.
-- Each configured target is pinged with exactly 5 packets using `-i 0.5`; worst-case duration is roughly `(5 - 1) * 0.5 + PING_TIMEOUT_SECONDS` per target.
+- Each configured target is pinged with exactly 10 packets using `-i 1`; worst-case duration is roughly `(10 - 1) * 1 + PING_TIMEOUT_SECONDS` per target.
 - DB status is updated after each batch finishes, with one commit per batch.
-- After all batch commits and the alert attempt, the worker immediately starts the next round.
+- After all batch commits and any due Telegram summary attempt, the worker immediately starts the next round.
+- Telegram sends one current OPEN incident summary at 09:00 and 14:00 local time; if none are open, it sends an OK heartbeat.
 - Stored `wan_status` and `tunnel_status` keep the latest probe result.
 - Stored `overall_status` changes immediately from the current round: `UP`, `WAN_DOWN`, `TUNNEL_DOWN`, `DOWN`, or `UNKNOWN`.
 - GUI Dashboard/Stores read stored DB status directly.
-- A down incident opens/updates immediately when the current round shows a down status.
+- A down incident opens/updates after 2 confirmed failing rounds.
 - Recovery resolves open incidents immediately when the current round shows `UP`.
-- Recovery notifications are sent only for incidents whose DOWN alert was sent successfully.
+- Telegram does not send per-incident alert/recovery/reminder messages; scheduled summaries report the current `OPEN` set.
 - Each store should have at most one active `OPEN` incident.
-- Telegram sent flags are marked only after Telegram send succeeds.
-- Each worker cycle retries old `OPEN` incidents with `alert_sent=false` when Telegram is configured.
-- Every `TELEGRAM_REMINDER_INTERVAL_SECONDS` seconds, open incidents with `alert_sent=true` are reminded if still unresolved; default `21600` (6h), `0` disables reminders.
-- Reminder timestamps update only after Telegram success, so failed reminder sends retry next cycle.
+- Summary slot markers are saved only after Telegram send succeeds, so failed sends retry next cycle.
+- Historical `alert_sent`/`recovery_sent`/reminder DB fields remain for compatibility but no longer drive Telegram sends.
 
 ## Tests
 

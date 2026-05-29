@@ -9,7 +9,7 @@ Phạm vi hiện tại:
 - Agentless, không cài agent tại store.
 - Import inventory từ Excel.
 - Lưu dữ liệu mặc định bằng SQLite.
-- Gửi cảnh báo và recovery qua Telegram.
+- Gửi Telegram summary các incident đang OPEN lúc 09:00 và 14:00 hằng ngày.
 - GUI nội bộ: dashboard, stores, store detail, incidents, import, backup/restore.
 - Không triển khai latency/packet loss ở giai đoạn này.
 
@@ -137,14 +137,14 @@ Start monitor cycle
   → load enabled stores ordered by Store.id
   → split stores into batches of 50
   → within each batch, check up to 50 stores concurrently
-  → for each store: ping WAN/DNS with 5 packets, then IP Tunnel with 5 packets
+  → for each store: ping WAN/DNS with 10 packets, then IP Tunnel with 10 packets
   → update raw target status + counters + overall status for the finished batch
   → open/update/resolve Incident immediately from current batch result
   → commit DB state after each finished batch
-  → after all batches, collect old OPEN incidents with alert_sent=false
-  → collect due reminders for OPEN incidents with alert_sent=true
-  → send Telegram alerts/reminders/recoveries
-  → mark sent/reminder flags only after Telegram success
+  → after all batches, check whether 09:00/14:00 local summary slot is due
+  → query current OPEN incidents
+  → send one Telegram summary, or OK heartbeat if none are open
+  → mark summary slot sent only after Telegram success
   → release lock
   → next round starts immediately
 ```
@@ -161,7 +161,7 @@ Nếu lock busy, cycle/request mới skip an toàn:
 
 - WAN/DNS: ping trực tiếp giá trị cấu hình, giống tunnel; DNS/IP đều chỉ cần pass/fail theo `ping`.
 - Tunnel: ping `ip_tunnel`.
-- Mỗi target cấu hình được ping đúng 5 packets với `-i 0.5`; worst-case khoảng `(5 - 1) * 0.5 + PING_TIMEOUT_SECONDS` cho mỗi target; pass theo exit code của `ping`.
+- Mỗi target cấu hình được ping đúng 10 packets với `-i 1`; worst-case khoảng `(10 - 1) * 1 + PING_TIMEOUT_SECONDS` cho mỗi target; pass theo exit code của `ping`.
 - Store được chia batch 50; các store trong cùng batch chạy song song, nhưng mỗi store vẫn check tuần tự WAN/DNS rồi IP Tunnel.
 
 ### Derived status
@@ -195,30 +195,29 @@ Target UNKNOWN: không đổi down_window
 
 Counters/windows chỉ còn ý nghĩa diagnostic/backward-compatible, không dùng để quyết định DOWN/UP.
 
-## 9. Alert workflow
+## 9. Telegram summary workflow
 
 ```text
-Status transition / incident event
-  → build in-memory alert/recovery event
-  → commit DB state
-  → add old OPEN incidents with alert_sent=false when Telegram is configured
-  → add due reminder events for OPEN + alert_sent=true incidents
+After each monitor cycle
+  → check local time in TIMEZONE
+  → if 09:00 or 14:00 slot is due and not sent today
+  → query current OPEN incidents for enabled stores
+  → format one Telegram summary
+  → if no OPEN incidents, format OK heartbeat
   → send Telegram
-  → if success: mark alert_sent/recovery_sent/reminder timestamp + last_alert_at
-  → if fail: keep sent/reminder flags unchanged, do not rollback incident state
+  → if success: mark YYYY-MM-DDT09:00 / YYYY-MM-DDT14:00 sent in monitor_status.json
+  → if fail: keep slot pending for retry in the next cycle
 ```
 
-Batch alert:
+Scheduled summary:
 
-- 1-5 alerts: gửi chi tiết từng store.
-- 6-30 alerts: gửi 1 summary theo status/region/area.
-- >30 alerts: gửi 1 major incident summary.
-- Recovery 1-5: gửi chi tiết từng store; recovery >5: gửi 1 recovery summary.
-- Reminder 1-5: gửi chi tiết từng store; reminder >5: gửi 1 unresolved summary.
-- Chỉ gửi recovery notification cho incident đã gửi DOWN alert thành công (`alert_sent=true`).
-- Mỗi `TELEGRAM_REMINDER_INTERVAL_SECONDS` giây, worker scan incident `OPEN + alert_sent=true`; default `21600` (6h), `0` disables reminders.
-- Reminder dùng anchor `last_reminder_at` hoặc `alert_sent_at`; nếu gửi fail thì không update timestamp để retry cycle sau.
-- Nếu Telegram chưa cấu hình, worker không query retry pending alert/reminder để tránh scan lặp vô ích.
+- No per-incident alert messages.
+- No per-incident recovery messages.
+- No reminder scan or 6-hour reminder messages.
+- 09:00 and 14:00 use configured `TIMEZONE`.
+- Summary includes total affected, counts by status/region/area, and up to 30 store codes.
+- Empty slot still sends an OK heartbeat.
+- Historical incident columns like `alert_sent`, `recovery_sent`, `last_reminder_at`, `reminder_count` remain in DB for backward compatibility but are no longer used for Telegram scheduling.
 
 ## 10. GUI workflow
 
@@ -286,7 +285,6 @@ MONITOR_INTERVAL_SECONDS=30
 PING_TIMEOUT_SECONDS=2
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
-TELEGRAM_REMINDER_INTERVAL_SECONDS=21600
 TIMEZONE=Asia/Ho_Chi_Minh
 LOG_LEVEL=INFO
 DATA_DIR=./data
@@ -320,7 +318,7 @@ Focused areas covered by tests:
 - Store list/detail/delete.
 - Import preview/confirm/cancel and import safety.
 - Immediate status transitions, GUI DB status sync, recovery, and dedup.
-- Batched worker flow, alert batching/dedup, and 6-hour reminders.
+- Batched worker flow and scheduled Telegram summary slots.
 - Backup/restore.
 - Incident export.
 

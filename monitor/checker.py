@@ -10,7 +10,7 @@ async def ping_host(host: str, timeout: int = 1, retry: int = 1) -> bool:
         "-c",
         str(max(1, retry)),
         "-i",
-        "0.5",
+        "1",
         "-W",
         str(timeout),
         host,

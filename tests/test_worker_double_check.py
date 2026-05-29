@@ -40,7 +40,10 @@ async def test_alert_send_does_not_recheck_targets(tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "STATUS_PATH", tmp_path / "monitor_status.json")
     monkeypatch.setattr(worker, "check_wan", check_wan)
     monkeypatch.setattr(worker, "ping_host", ping_host)
+    slots = iter([None, "09:00"])
+
     monkeypatch.setattr(worker, "send_telegram", send_telegram)
+    monkeypatch.setattr(worker, "_due_telegram_summary_slot", lambda: next(slots))
     monkeypatch.setattr(worker.settings, "telegram_bot_token", "token")
     monkeypatch.setattr(worker.settings, "telegram_chat_id", "chat")
 
@@ -53,8 +56,8 @@ async def test_alert_send_does_not_recheck_targets(tmp_path, monkeypatch):
     assert second_result["messages"] == 1
     assert sent_messages
     assert calls == [
-        ("wan", "wan.example", 5),
-        ("tunnel", "10.0.0.1", 5),
-        ("wan", "wan.example", 5),
-        ("tunnel", "10.0.0.1", 5),
+        ("wan", "wan.example", 10),
+        ("tunnel", "10.0.0.1", 10),
+        ("wan", "wan.example", 10),
+        ("tunnel", "10.0.0.1", 10),
     ]

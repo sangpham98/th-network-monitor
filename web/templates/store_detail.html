@@ -65,8 +65,6 @@
           <th>Started</th>
           <th>Ended</th>
           <th>Duration</th>
-          <th>Alert sent</th>
-          <th>Recovery sent</th>
         </tr>
       </thead>
       <tbody>
@@ -78,11 +76,9 @@
           <td>{{ incident.started_at|local_datetime }}</td>
           <td>{{ incident.ended_at|local_datetime }}</td>
           <td>{{ incident.duration_seconds if incident.duration_seconds is not none else '-' }}</td>
-          <td>{{ 'yes' if incident.alert_sent else 'no' }}</td>
-          <td>{{ 'yes' if incident.recovery_sent else 'no' }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="8">No incidents.</td></tr>
+        <tr><td colspan="6">No incidents.</td></tr>
         {% endfor %}
       </tbody>
     </table>
