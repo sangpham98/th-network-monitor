@@ -157,6 +157,11 @@ def dashboard_time_filter(
         range_end = local_now
         range_start = local_now - DASHBOARD_QUICK_RANGES[selected_range][1]
 
+    total_seconds = (range_end - range_start).total_seconds()
+    ticks = [
+        (range_start + timedelta(seconds=total_seconds * ratio)).strftime("%H:%M")
+        for ratio in (0, 0.25, 0.5, 0.75, 1)
+    ]
     return {
         "mode": mode,
         "quick_range": selected_range,
@@ -165,6 +170,7 @@ def dashboard_time_filter(
         "start_value": range_start.strftime("%Y-%m-%dT%H:%M"),
         "end_value": range_end.strftime("%Y-%m-%dT%H:%M"),
         "label": f"{range_start.strftime('%Y-%m-%d %H:%M')} → {range_end.strftime('%Y-%m-%d %H:%M')}",
+        "ticks": ticks,
         "start_utc": range_start.astimezone(UTC).replace(tzinfo=None),
         "end_utc": range_end.astimezone(UTC).replace(tzinfo=None),
     }
@@ -333,7 +339,14 @@ def dashboard(
             "time_filter": time_filter,
             "quick_ranges": DASHBOARD_QUICK_RANGES,
             "incident_sections": incident_sections,
-            "store_timelines": build_store_timelines(db, timeline_stores),
+            "store_timelines": build_store_timelines(
+                db,
+                timeline_stores,
+                range_start=time_filter["start_utc"],
+                range_end=time_filter["end_utc"],
+            ),
+            "timeline_range_label": time_filter["label"],
+            "timeline_ticks": time_filter["ticks"],
             "show_timeline": True,
             "current_user": current_user,
             **monitor_context(db),
@@ -372,37 +385,48 @@ def _timeline_label(start: datetime, end: datetime, status: str) -> str:
     return f"{status} {start.strftime('%H:%M')}→{end.strftime('%H:%M')}"
 
 
-def build_store_timelines(db: Session, stores: list[Store], now: datetime | None = None) -> dict[int, list[dict]]:
+def build_store_timelines(
+    db: Session,
+    stores: list[Store],
+    now: datetime | None = None,
+    range_start: datetime | None = None,
+    range_end: datetime | None = None,
+) -> dict[int, list[dict]]:
     store_ids = [store.id for store in stores]
     if not store_ids:
         return {}
 
+    timezone = _timezone(settings.timezone)
     local_now, day_start, day_end = _daily_timeline_window(now)
-    day_start_utc = day_start.astimezone(UTC).replace(tzinfo=None)
-    day_end_utc = day_end.astimezone(UTC).replace(tzinfo=None)
+    timeline_start = range_start.replace(tzinfo=UTC).astimezone(timezone) if range_start else day_start
+    timeline_end = range_end.replace(tzinfo=UTC).astimezone(timezone) if range_end else day_end
+    if timeline_end <= timeline_start:
+        return {store_id: [] for store_id in store_ids}
+
+    timeline_start_utc = timeline_start.astimezone(UTC).replace(tzinfo=None)
+    timeline_end_utc = timeline_end.astimezone(UTC).replace(tzinfo=None)
     local_now_utc = local_now.astimezone(UTC).replace(tzinfo=None)
     incidents = (
         db.query(Incident)
         .filter(
             Incident.store_id.in_(store_ids),
-            Incident.started_at < day_end_utc,
-            or_(Incident.ended_at.is_(None), Incident.ended_at > day_start_utc),
+            Incident.started_at < timeline_end_utc,
+            or_(Incident.ended_at.is_(None), Incident.ended_at > timeline_start_utc),
         )
         .order_by(Incident.started_at.asc())
         .all()
     )
-    total_seconds = (day_end - day_start).total_seconds()
+    total_seconds = (timeline_end - timeline_start).total_seconds()
     timelines = {store_id: [] for store_id in store_ids}
-    timezone = _timezone(settings.timezone)
     for incident in incidents:
         started_at = incident.started_at.replace(tzinfo=UTC).astimezone(timezone)
         raw_end = incident.ended_at or local_now_utc
         ended_at = raw_end.replace(tzinfo=UTC).astimezone(timezone)
-        segment_start = max(started_at, day_start)
-        segment_end = min(ended_at, day_end)
+        segment_start = max(started_at, timeline_start)
+        segment_end = min(ended_at, timeline_end)
         if segment_end <= segment_start:
             continue
-        left = ((segment_start - day_start).total_seconds() / total_seconds) * 100
+        left = ((segment_start - timeline_start).total_seconds() / total_seconds) * 100
         width = ((segment_end - segment_start).total_seconds() / total_seconds) * 100
         timelines[incident.store_id].append(
             {
@@ -426,6 +450,8 @@ def stores(request: Request, q: str = "", status: str = "", db: Session = Depend
         {
             "stores": visible_stores,
             "store_timelines": build_store_timelines(db, visible_stores),
+            "timeline_range_label": "00:00 → 24:00",
+            "timeline_ticks": ["00", "06", "12", "18", "24"],
             "filtered_count": filtered_count,
             "q": q,
             "status": status,
