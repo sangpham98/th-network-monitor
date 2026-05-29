@@ -45,7 +45,9 @@
           </div>
           <div class="downtime-track" aria-label="Stability history for {{ store.store_code }}">
             {% for segment in timeline_segments %}
+            {% if timeline_status_filter is not defined or segment.status == timeline_status_filter or segment.status == 'FUTURE' %}
             <span class="downtime-segment status-{{ segment.status }}" style="left: {{ segment.left }}%; width: {{ segment.width }}%;" title="{{ segment.label }}"></span>
+            {% endif %}
             {% endfor %}
           </div>
           <div class="downtime-ticks">

@@ -50,6 +50,7 @@
     {% set stores = section.stores %}
     {% set show_delete = false %}
     {% set show_timeline = true %}
+    {% set timeline_status_filter = section.type %}
     {% include 'store_table.html' %}
   {% else %}
     <p class="hint">Không có store trong khoảng thời gian này.</p>

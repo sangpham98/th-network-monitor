@@ -369,6 +369,7 @@ def dashboard(
                 timeline_stores,
                 range_start=time_filter["start_utc"],
                 range_end=time_filter["end_utc"],
+                include_future=True,
             ),
             "timeline_range_label": time_filter["label"],
             "timeline_ticks": time_filter["ticks"],
@@ -426,6 +427,7 @@ def build_store_timelines(
     now: datetime | None = None,
     range_start: datetime | None = None,
     range_end: datetime | None = None,
+    include_future: bool = False,
 ) -> dict[int, list[dict]]:
     store_ids = [store.id for store in stores]
     if not store_ids:
@@ -453,6 +455,20 @@ def build_store_timelines(
     )
     total_seconds = (timeline_end - timeline_start).total_seconds()
     timelines = {store_id: [] for store_id in store_ids}
+    future_start = max(local_now, timeline_start)
+    if include_future and timeline_end > future_start:
+        left = ((future_start - timeline_start).total_seconds() / total_seconds) * 100
+        width = ((timeline_end - future_start).total_seconds() / total_seconds) * 100
+        for store_id in store_ids:
+            timelines[store_id].append(
+                {
+                    "left": round(left, 3),
+                    "width": round(width, 3),
+                    "status": "FUTURE",
+                    "label": f"Future: {future_start.strftime('%Y-%m-%d %H:%M')} → {timeline_end.strftime('%Y-%m-%d %H:%M')}",
+                }
+            )
+
     for incident in incidents:
         started_at = incident.started_at.replace(tzinfo=UTC).astimezone(timezone)
         raw_end = incident.ended_at or local_now_utc

@@ -251,6 +251,11 @@ tbody tr:hover td { background: #fbfefe; }
   box-shadow: 0 0 0 1px rgba(127, 29, 29, .18) inset;
 }
 
+.downtime-segment.status-DOWN { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+.downtime-segment.status-TUNNEL_DOWN { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+.downtime-segment.status-WAN_DOWN { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.downtime-segment.status-FUTURE { background: repeating-linear-gradient(135deg, #cbd5e1 0 8px, #e2e8f0 8px 16px); opacity: .9; }
+
 .downtime-ticks {
   display: flex;
   justify-content: space-between;
