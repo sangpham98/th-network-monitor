@@ -46,7 +46,7 @@
           <div class="downtime-track" aria-label="Stability history for {{ store.store_code }}">
             {% for segment in timeline_segments %}
             {% if timeline_status_filter is not defined or segment.status == timeline_status_filter or segment.status == 'FUTURE' %}
-            <span class="downtime-segment status-{{ segment.status }}" style="left: {{ segment.left }}%; width: {{ segment.width }}%;" title="{{ segment.label }}"></span>
+            <span class="downtime-segment status-{{ segment.status }}" style="left: {{ segment.left }}%; width: {{ segment.width }}%; {% if segment.status == 'FUTURE' %}background: repeating-linear-gradient(135deg, #cbd5e1 0 8px, #e2e8f0 8px 16px);{% elif segment.status == 'TUNNEL_DOWN' %}background: linear-gradient(135deg, #8b5cf6, #6d28d9);{% elif segment.status == 'WAN_DOWN' %}background: linear-gradient(135deg, #f59e0b, #d97706);{% elif segment.status == 'DOWN' %}background: linear-gradient(135deg, #ef4444, #b91c1c);{% endif %}" title="{{ segment.label }}"></span>
             {% endif %}
             {% endfor %}
           </div>
