@@ -6,26 +6,28 @@
   <title>TH Network Monitor</title>
   <link rel="icon" href="data:,">
   {% if auto_refresh_seconds is defined %}<meta http-equiv="refresh" content="{{ auto_refresh_seconds }}">{% endif %}
-  <link rel="stylesheet" href="/static/app.css?v=20260529-stability-colors">
+  <link rel="stylesheet" href="/static/app.css?v=20260530-dashboard-scroll">
 </head>
 <body>
-  <div class="nav">
-    <strong class="brand">TH Network Monitor</strong>
-    {% if current_user %}
-    <div class="nav-links">
-      <a href="/">Dashboard</a>
-      <a href="/stores">Stores</a>
-      <a href="/import">Import Excel</a>
-      <a href="/incidents">Incidents</a>
-      <a href="/backups">Backups</a>
-    </div>
-    <div class="nav-user">
-      <span class="hint">{{ current_user }}</span>
-      <form class="logout-form" method="post" action="/logout"><button class="btn">Logout</button></form>
-    </div>
-    {% endif %}
+  <div class="app-shell">
+    <aside class="nav">
+      <strong class="brand">TH Network Monitor</strong>
+      {% if current_user %}
+      <div class="nav-links">
+        <a class="{% if request.url.path == '/' %}active{% endif %}" href="/">Dashboard</a>
+        <a class="{% if request.url.path.startswith('/stores') %}active{% endif %}" href="/stores">Stores</a>
+        <a class="{% if request.url.path.startswith('/import') %}active{% endif %}" href="/import">Import Excel</a>
+        <a class="{% if request.url.path.startswith('/incidents') %}active{% endif %}" href="/incidents">Incidents</a>
+        <a class="{% if request.url.path.startswith('/backups') %}active{% endif %}" href="/backups">Backups</a>
+      </div>
+      <div class="nav-user">
+        <span class="hint">{{ current_user }}</span>
+        <form class="logout-form" method="post" action="/logout"><button class="btn">Logout</button></form>
+      </div>
+      {% endif %}
+    </aside>
+    <main class="wrap">{% if monitor_running is defined %}<div class="monitor-bar {% if monitor_running %}running{% endif %}">Monitor: {% if monitor_running %}đang chạy batch {{ monitor_status.batch_current|default('?') }}/{{ monitor_status.batch_total|default('?') }}; checked {{ monitor_status.checked|default(0) }}/{{ monitor_status.total|default('?') }} store; status cập nhật sau mỗi batch commit DB{% else %}idle{% endif %}. Last check: {{ latest_check_at|local_datetime if latest_check_at else '-' }}</div>{% endif %}{% block content %}{% endblock %}</main>
   </div>
-  <main class="wrap">{% if monitor_running is defined %}<div class="monitor-bar {% if monitor_running %}running{% endif %}">Monitor: {% if monitor_running %}đang chạy batch {{ monitor_status.batch_current|default('?') }}/{{ monitor_status.batch_total|default('?') }}; checked {{ monitor_status.checked|default(0) }}/{{ monitor_status.total|default('?') }} store; status cập nhật sau mỗi batch commit DB{% else %}idle{% endif %}. Last check: {{ latest_check_at|local_datetime if latest_check_at else '-' }}</div>{% endif %}{% block content %}{% endblock %}</main>
 </body>
 </html>
 
