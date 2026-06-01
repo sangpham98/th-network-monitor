@@ -210,7 +210,7 @@ def dashboard_incident_stores(db: Session, incident_type: str, range_start: date
             Incident.started_at < range_end,
             or_(Incident.ended_at.is_(None), Incident.ended_at > range_start),
         )
-        .order_by(Store.store_code)
+        .order_by(Incident.started_at.desc(), Store.store_code)
         .all()
     )
     seen = set()
